@@ -1,0 +1,51 @@
+port: 8080
+
+cluster:
+  protocols:
+    - type: nativerpc
+  capabilities:
+    - QUERY
+  discovery:
+    type: static
+    nodes:
+      - "nativerpc://localhost:1394"
+
+metrics:
+  backends:
+    - type: datastax
+      seeds:
+        - localhost
+
+metadata:
+  backends:
+    - type: elasticsearch
+      connection:
+        index:
+          type: rotating
+          pattern: heroic-metadata-v1-%s
+        seeds:
+          - localhost
+
+suggest:
+  backends:
+    - type: elasticsearch
+      connection:
+        index:
+          type: rotating
+          pattern: heroic-suggest-v1-%s
+        seeds:
+          - localhost
+consumers:
+  - type: kafka
+    schema: com.spotify.heroic.consumer.schemas.Spotify100
+    topics:
+      - "metrics-sto1"
+      - "metrics-sto2"
+      - "metrics-sto3"
+      - "metrics-sto5"
+      - "metrics-sto99"
+    config:
+      group.id: heroic-sto
+      zookeeper.connect: sto3-kafkazookeeper-a1,sto3-kafkazookeeper-a2,sto3-kafkazookeeper-a3/kafka-monitoring
+      auto.offset.reset: smallest
+      auto.commit.enable: true
