@@ -1,0 +1,112 @@
+port: 8080
+
+refreshClusterSchedule: "0 */5 * * * ?"
+
+cluster:
+  useLocal: false
+  tags:
+    site: sto
+  capabilities:
+    - QUERY
+  protocols:
+    - type: http
+  discovery:
+    type: static
+    nodes:
+      - http://localhost:8080
+
+metadata:
+  defaultBackends:
+    - sto
+  backends:
+    - type: elasticsearch
+      group: lon
+      connection:
+        clusterName: heroic-lon
+        index:
+          type: single
+          index: heroic
+        seeds:
+          - lon3-heroic-a1.spotify.net
+          - lon3-heroic-a2.spotify.net
+          - lon3-heroic-a3.spotify.net
+    - type: elasticsearch
+      group: sto
+      connection:
+        clusterName: heroic-sto
+        index:
+          type: single
+          index: heroic
+        seeds:
+          - sto1-heroic-a1.spotify.net
+          - sto1-heroic-a2.spotify.net
+          - sto1-heroic-a3.spotify.net
+    - type: elasticsearch
+      group: ash
+      connection:
+        clusterName: heroic-ash
+        index:
+          type: single
+          index: heroic
+        seeds:
+          - ash2-heroic-a1.spotify.net
+          - ash2-heroic-a2.spotify.net
+          - ash2-heroic-a3.spotify.net
+    - type: elasticsearch
+      group: sjc
+      connection:
+        clusterName: heroic-sjc
+        index:
+          type: single
+          index: heroic
+        seeds:
+          - sjc1-heroic-a1.spotify.net
+          - sjc1-heroic-a2.spotify.net
+          - sjc1-heroic-a3.spotify.net
+
+suggest:
+  backends:
+    - type: elasticsearch
+      group: lon
+      connection:
+        clusterName: heroic-suggest-lon
+        index:
+          type: rotating
+          pattern: heroic-suggest-%s
+        seeds:
+          - lon6-heroicsuggest-a1
+          - lon6-heroicsuggest-a2
+          - lon6-heroicsuggest-a3
+    - type: elasticsearch
+      group: sto
+      connection:
+        clusterName: heroic-suggest-sto
+        index:
+          type: rotating
+          pattern: heroic-suggest-%s
+        seeds:
+          - sto3-heroicsuggest-a1
+          - sto3-heroicsuggest-a2
+          - sto3-heroicsuggest-a3
+    - type: elasticsearch
+      group: ash
+      connection:
+        clusterName: heroic-suggest-ash
+        index:
+          type: rotating
+          pattern: heroic-suggest-%s
+        seeds:
+          - ash2-heroicsuggest-a1
+          - ash2-heroicsuggest-a2
+          - ash2-heroicsuggest-a3
+    - type: elasticsearch
+      group: sjc
+      connection:
+        clusterName: heroic-suggest-sjc
+        index:
+          type: rotating
+          pattern: heroic-suggest-%s
+        seeds:
+          - sjc1-heroicsuggest-a1
+          - sjc1-heroicsuggest-a2
+          - sjc1-heroicsuggest-a3

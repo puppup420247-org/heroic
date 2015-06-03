@@ -29,6 +29,7 @@
     <module>rpc/httprpc</module>
     <module>rpc/nativerpc</module>
     <module>heroic-dist</module>
+    <module>heroic-internal-dist</module>
   </modules>
 
   <licenses>

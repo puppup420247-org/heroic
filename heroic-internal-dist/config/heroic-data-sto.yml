@@ -1,0 +1,60 @@
+port: 8080
+
+refreshClusterSchedule: "0 */5 * * * ?"
+
+cluster:
+  useLocal: false
+  tags:
+    site: sto
+  protocols:
+    - type: http
+    - type: nativerpc
+  capabilities:
+    - WRITE
+    - QUERY
+  discovery:
+    type: static
+    nodes:
+      - nativerpc://localhost
+
+metrics:
+  backends:
+    - type: datastax
+      group: heroic
+      seeds:
+        - sto3-heroiccassandra-a1.spotify.net
+        - sto3-heroiccassandra-a2.spotify.net
+        - sto3-heroiccassandra-a3.spotify.net
+      pools:
+        readQueueSize: 100000
+
+metadata:
+  backends:
+    - type: elasticsearch
+      connection:
+        clusterName: heroic-sto
+        index:
+          type: rotating
+          pattern: heroic-metadata-v1-%s
+        seeds:
+          - sto1-heroic-a1.spotify.net
+          - sto1-heroic-a2.spotify.net
+          - sto1-heroic-a3.spotify.net
+
+suggest:
+  backends:
+    - type: elasticsearch
+      connection:
+        clusterName: heroic-suggest-sto
+        index:
+          type: rotating
+          pattern: heroic-suggest-%s
+        seeds:
+          - sto3-heroicsuggest-a1.spotify.net
+          - sto3-heroicsuggest-a2.spotify.net
+          - sto3-heroicsuggest-a3.spotify.net
+
+ingestion:
+  updateMetrics: false
+  updateMetadata: false
+  updateSuggestions: false

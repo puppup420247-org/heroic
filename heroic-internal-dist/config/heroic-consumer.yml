@@ -1,0 +1,20 @@
+port: 8080
+
+refreshClusterSchedule: "0 */5 * * * ?"
+
+cluster:
+  useLocal: true
+  capabilities:
+    - QUERY
+  protocols:
+    - type: http
+
+metadata:
+  backends:
+    - type: elasticsearch
+      connection:
+        index:
+          type: single
+          index: heroic
+        seeds:
+          - localhost

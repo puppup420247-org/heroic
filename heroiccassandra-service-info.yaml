@@ -1,0 +1,31 @@
+id: heroiccassandra
+description: |
+  Cassandra clusters for Heroic
+
+# This service belongs to
+system: alien
+
+# Main owner of this service
+owner: hero
+
+# This reflects that intended usage of this service
+#   'private' - should only be used by owning squad
+#   'public'  - can be used by anyone
+visibility: private
+
+# Declared dependencies
+dependencies: []
+
+facts:
+  # list of doc links
+  docs:
+
+  tags:
+    - monitoring
+    - heroic
+    - alien
+  pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
+  role: heroiccassandra
+
+  squads:
+    - hero

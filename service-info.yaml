@@ -1,0 +1,31 @@
+id: heroic
+description: |
+  Backend for Alien.
+
+system: alien
+
+# Main owner of this service
+owner: hero
+
+# This reflects that intended usage of this service
+#   'private' - should only be used by owning squad
+#   'public'  - can be used by anyone
+visibility: private
+
+# Declared dependencies
+dependencies:
+  - heroicsuggest
+  - heroiccassandra
+
+facts:
+  docs:
+    - https://ghe.spotify.net/monitoring/heroic/blob/master/README.md
+  tags:
+    - monitoring
+    - alien
+  pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
+  role: heroic
+  
+  slack-channel: monitoring-users
+  squads:
+    - hero
