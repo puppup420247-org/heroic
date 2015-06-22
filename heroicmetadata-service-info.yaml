@@ -28,6 +28,8 @@ owner: hero
 # should generally be marked as private.
 visibility: private
 
+role: heroicmetadata
+
 # A list of other components (services, data stores, etc.) on which
 # this component depends. Must be valid service_discovery names
 # registered in the Nameless service.
@@ -54,9 +56,12 @@ facts:
     - heroic
     - metadata
     - elasticsearch
+
+  squads:
+    - hero
   
   # Links to support systems. Remove hash to enable.
-  #slack_channel: hero  # Link to Slack channel.
+  slack_channel: hero  # Link to Slack channel.
   #pagerdutykey: decafbad  # PagerDuty API key.
   
   # Custom key-values, for owner's own use.
