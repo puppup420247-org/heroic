@@ -28,8 +28,6 @@ owner: hero
 # should generally be marked as private.
 visibility: private
 
-role: heroicmetadata
-
 # A list of other components (services, data stores, etc.) on which
 # this component depends. Must be valid service_discovery names
 # registered in the Nameless service.
@@ -49,7 +47,7 @@ facts:
     - heroicmetadata
   
   # The Puppet role of this component in a production environment:
-  #role: heroicmetadata::puppetrolename  # /!\ IMPORTANT! Needed for provisioning!
+  role: heroicmetadata  # /!\ IMPORTANT! Needed for provisioning!
   
   # Any tags you like, to help refine search results.
   tags:
