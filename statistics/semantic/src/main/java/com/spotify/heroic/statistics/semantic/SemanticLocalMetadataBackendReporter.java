@@ -31,6 +31,8 @@ public class SemanticLocalMetadataBackendReporter implements LocalMetadataBacken
     private final Meter writeSuccess;
     private final Meter writeFailure;
 
+    private final Meter writesDroppedByRateLimit;
+
     private final Meter writeCacheHit;
     private final Meter writeCacheMiss;
 
@@ -50,6 +52,7 @@ public class SemanticLocalMetadataBackendReporter implements LocalMetadataBacken
         write = new SemanticFutureReporter(registry, base.tagged("what", "write", "unit", Units.WRITE));
         writeCacheHit = registry.meter(base.tagged("what", "write-cache-hit", "unit", Units.HIT));
         writeCacheMiss = registry.meter(base.tagged("what", "write-cache-miss", "unit", Units.MISS));
+        writesDroppedByRateLimit = registry.meter(base.tagged("what", "writes-dropped-by-rate-limit", "unit", Units.DROP));
         writeSuccess = registry.meter(base.tagged("what", "write-success", "unit", Units.WRITE));
         writeFailure = registry.meter(base.tagged("what", "write-failure", "unit", Units.FAILURE));
         writeBatchDuration = registry.histogram(base.tagged("what", "write-bulk-duration", "unit", Units.MILLISECOND));
@@ -98,6 +101,11 @@ public class SemanticLocalMetadataBackendReporter implements LocalMetadataBacken
     @Override
     public void reportWriteCacheMiss() {
         writeCacheMiss.mark();
+    }
+
+    @Override
+    public void reportWriteDroppedByRateLimit() {
+        writesDroppedByRateLimit.mark();
     }
 
     @Override
