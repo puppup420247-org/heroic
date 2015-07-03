@@ -71,6 +71,7 @@ import com.spotify.heroic.shell.task.MetadataFetch;
 import com.spotify.heroic.shell.task.MetadataMigrate;
 import com.spotify.heroic.shell.task.MetadataMigrateSuggestions;
 import com.spotify.heroic.shell.task.MetadataTags;
+import com.spotify.heroic.shell.task.RepairNetworkMetadata;
 import com.spotify.heroic.shell.task.SuggestTag;
 import com.spotify.heroic.shell.task.Usage;
 import com.spotify.heroic.shell.task.WritePerformance;
@@ -111,6 +112,7 @@ public class HeroicShell {
         tasks.put("metadata-migrate", MetadataMigrate.class);
         tasks.put("metadata-migrate-suggestions", MetadataMigrateSuggestions.class);
         tasks.put("suggest-tag", SuggestTag.class);
+        tasks.put("repair-network-metadata", RepairNetworkMetadata.class);
     }
 
     public static void main(String[] args) throws IOException {

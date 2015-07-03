@@ -3,17 +3,11 @@ port: 8080
 refreshClusterSchedule: "0 */5 * * * ?"
 
 cluster:
-  useLocal: false
+  useLocal: true
   tags:
     site: sto
   capabilities:
     - QUERY
-  protocols:
-    - type: http
-  discovery:
-    type: static
-    nodes:
-      - http://localhost:8080
 
 metadata:
   defaultBackends:
@@ -24,8 +18,8 @@ metadata:
       connection:
         clusterName: heroic-lon
         index:
-          type: single
-          index: heroic
+          type: rotating
+          pattern: heroic-metadata-v1-%s
         seeds:
           - lon3-heroic-a1.spotify.net
           - lon3-heroic-a2.spotify.net
@@ -35,8 +29,8 @@ metadata:
       connection:
         clusterName: heroic-sto
         index:
-          type: single
-          index: heroic
+          type: rotating
+          pattern: heroic-metadata-v1-%s
         seeds:
           - sto1-heroic-a1.spotify.net
           - sto1-heroic-a2.spotify.net
@@ -46,8 +40,8 @@ metadata:
       connection:
         clusterName: heroic-ash
         index:
-          type: single
-          index: heroic
+          type: rotating
+          pattern: heroic-metadata-v1-%s
         seeds:
           - ash2-heroic-a1.spotify.net
           - ash2-heroic-a2.spotify.net
@@ -57,8 +51,8 @@ metadata:
       connection:
         clusterName: heroic-sjc
         index:
-          type: single
-          index: heroic
+          type: rotating
+          pattern: heroic-metadata-v1-%s
         seeds:
           - sjc1-heroic-a1.spotify.net
           - sjc1-heroic-a2.spotify.net
