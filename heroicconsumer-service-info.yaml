@@ -47,7 +47,7 @@ facts:
     - http://docs.for.heroicconsumer.com
   
   # The Puppet role of this component in a production environment:
-  role: heroicconsumerrole
+  role: heroicconsumer
   
   # Any tags you like, to help refine search results.
   tags:
