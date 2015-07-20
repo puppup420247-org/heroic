@@ -28,3 +28,4 @@ facts:
 
   squads:
     - hero
+    - bases
