@@ -1,0 +1,31 @@
+concurrency: [10, 20, 50, 75, 100, 125, 150, 200]
+tests:
+  - context: "site = lon"
+    count: 1000
+    suggestions:
+      - input: site:lon
+        expect: ["site:lon"]
+      - input: role:heroic
+        expect: ["role:heroic", "role:heroicsuggest", "role:heroicmetadata", "role:heroiccassandra", "role:heroicconsumer"]
+      - input: role:ac
+        expect: ["role:accesspoint", "role:accounts", "role:activityview"]
+  - context: "site = lon and role = heroic"
+    count: 1000
+    suggestions:
+      - input: what:disk-used-percentage
+        expect: ["what:disk-used-percentage", "what:disk-used", "what:disk-usage"]
+      - input: component:met
+        expect: ["component:metric-backend", "component:metric-backends", "component:metadata-backend", "component:metadata-backend-manager"]
+      - input: :idle
+        expect: ["cpu_type:idle"]
+      - input: host:a7
+        expect: ["host:lon3-heroic-a7.lon3.spotify.net"]
+  - context: "site = lon and $key = apollo"
+    count: 1000
+    suggestions:
+      - input: rem:profile
+        expect: ["remote-service:profilecache", "remote-service:presence2", "remote-service:prex"]
+      - input: app:social
+        expect: ["application:social", "application:socialnetworkscache", "application:socialnetworks"]
+      - input: what:request
+        expect: ["what:requests"]
