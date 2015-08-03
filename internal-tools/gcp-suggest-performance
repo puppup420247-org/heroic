@@ -1,0 +1,35 @@
+#!/bin/bash
+
+set -e
+
+pools="$*"
+
+if [[ -z $pools ]]; then
+  echo "Usage: $0 <pool1> [<pool2> [..]]"
+  exit 1
+fi
+
+for pool in $pools; do
+  seeds="gcb2-heroicestest-${pool}1.gcb2.spotify.net,gcb2-heroicestest-${pool}2.gcb2.spotify.net,gcb2-heroicestest-${pool}3.gcb2.spotify.net"
+  output="suggest-performance.${pool}.json"
+  log="suggest-performance.${pool}.log"
+
+  echo "$pool:"
+  echo "  seeds: $seeds"
+  echo "  output: $output"
+  echo "  log: $log"
+  echo ""
+
+  echo "Running SuggestPerformance (log: $log)"
+
+  java -Xmx256m com.spotify.heroic.shell.task.SuggestPerformance \
+    -f tests.yaml \
+    -o $output \
+    --seeds $seeds \
+    --cluster-name heroicestest-$pool \
+    --backend-type $pool \
+    2>&1 > $log &
+done
+
+echo "Waiting SuggestPerformance to finish..."
+wait

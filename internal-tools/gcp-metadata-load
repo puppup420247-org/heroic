@@ -1,0 +1,56 @@
+#!/bin/bash
+
+set -e
+
+pools="$*"
+
+if [[ -z $pools ]]; then
+  echo "Usage: $0 <pool1> [<pool2> [..]]"
+  exit 1
+fi
+
+index="suggest"
+
+for pool in $pools; do
+  seed="gcb2-heroicestest-${pool}1.gcb2.spotify.net"
+  url="http://gcb2-heroicestest-${pool}1.gcb2.spotify.net:9200"
+  log="metadata-load.${pool}.log"
+
+  echo "$pool:"
+  echo "  seed: $seed"
+  echo "  log: $log"
+  echo ""
+
+  if ! host $seed; then
+    echo "Invalid seed: $seed"
+    continue
+  fi
+
+  echo "Disabling index refresh interval"
+  curl -XPUT $url/$index/_settings --data '{"index":{"refresh_interval": -1}}'
+  echo
+
+  echo "Disabling replicas"
+  curl -XPUT $url/$index/_settings --data '{"number_of_replicas": 0}'
+  echo
+
+  echo "Running MetadataLoad (log: $log)"
+  java -Xmx256m com.spotify.heroic.shell.task.MetadataLoad \
+    -f series.gz \
+    --seeds $seed \
+    --cluster-name heroicestest-$pool \
+    --backend-type $pool \
+    2>&1 > $log
+
+  echo "Restoring $pool"
+
+  echo "Enabling replicas"
+  curl -XPUT $url/$index/_settings --data '{"number_of_replicas": 1}'
+  echo
+
+  echo "Enabling index refresh interval"
+  curl -XPUT $url/$index/_settings --data '{"index":{"refresh_interval": "10s"}}'
+  echo
+done
+
+exit 0
