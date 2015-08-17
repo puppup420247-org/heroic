@@ -8,7 +8,14 @@ owner: hero
 
 visibility: private
 
-dependencies: []
+dependencies:
+  - id:heroiccassandra
+  - id:heroiccassandra2
+  - id:heroicmetadata
+  - id:heroicsuggest
+  - id:kafkamonitoring
+  - id:monitoringzookeper
+  - id:heroicconsumer
 
 facts:
   docs:
