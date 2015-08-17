@@ -3,7 +3,7 @@ description: |
   Elasticsearch cluster for tag suggestions in Heroic
 
 # This service belongs to
-system: alien
+system: heroicsuggest
 
 # Main owner of this service
 owner: hero
@@ -26,7 +26,4 @@ facts:
     - alien
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
   role: heroicsuggest
-  slack-channel: monitoring-users
-
-  squads:
-    - hero
+  slack_channel: monitoring-users
