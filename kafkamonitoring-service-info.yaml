@@ -2,7 +2,7 @@ id: kafkamonitoring
 description: |
   Kafka cluster for Heroic
 
-system: kafkamonitoring
+system: heroic
 owner: hero
 
 visibility: private
