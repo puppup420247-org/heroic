@@ -1,6 +1,6 @@
 id: heroicestest
 description: Kafka consumers for metrics
-system: heroicestest
+system: heroic
 owner: hero
 visibility: private
 dependencies: []
