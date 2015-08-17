@@ -1,6 +1,6 @@
 id: heroicmetadata
 description: Elasticsearch cluster for metadata indices in Heroic
-system: heroicmetadata
+system: heroic
 owner: hero
 visibility: private
 
