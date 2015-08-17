@@ -4,20 +4,15 @@ description: |
 
 system: heroic
 
-# Main owner of this service
 owner: hero
 
-# This reflects that intended usage of this service
-#   'private' - should only be used by owning squad
-#   'public'  - can be used by anyone
 visibility: public
 
-# Declared dependencies
 dependencies:
-  - heroicsuggest
-  - heroiccassandra
-  - heroiccassandra2
-  - heroicmetadata
+  - id:heroicsuggest
+  - id:heroiccassandra
+  - id:heroiccassandra2
+  - id:heroicmetadata
 
 facts:
   docs:
