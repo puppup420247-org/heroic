@@ -2,7 +2,7 @@ id: heroic
 description: |
   Backend for Alien.
 
-system: alien
+system: heroic
 
 # Main owner of this service
 owner: hero
@@ -28,6 +28,4 @@ facts:
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
   role: heroic
   
-  slack-channel: monitoring-users
-  squads:
-    - hero
+  slack_channel: monitoring-users
