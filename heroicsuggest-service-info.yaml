@@ -2,18 +2,11 @@ id: heroicsuggest
 description: |
   Elasticsearch cluster for tag suggestions in Heroic
 
-# This service belongs to
-system: heroicsuggest
-
-# Main owner of this service
+system: heroic
 owner: hero
 
-# This reflects that intended usage of this service
-#   'private' - should only be used by owning squad
-#   'public'  - can be used by anyone
 visibility: private
 
-# Declared dependencies
 dependencies: []
 
 facts:
