@@ -2,18 +2,11 @@ id: kafkamonitoring
 description: |
   Kafka cluster for Heroic
 
-# This service belongs to
-system: alien
-
-# Main owner of this service
+system: kafkamonitoring
 owner: hero
 
-# This reflects that intended usage of this service
-#   'private' - should only be used by owning squad
-#   'public'  - can be used by anyone
 visibility: private
 
-# Declared dependencies
 dependencies: []
 
 facts:
@@ -26,6 +19,4 @@ facts:
     - alien
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
   role: kafkamonitoring
-
-  squads:
-    - hero
+  slack_channel: monitoring-users
