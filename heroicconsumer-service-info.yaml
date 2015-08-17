@@ -2,7 +2,7 @@ id: heroicconsumer
 
 description: Kafka consumers for metrics
 
-system: heroicconsumer
+system: heroic
 
 owner: hero
 
