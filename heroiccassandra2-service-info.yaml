@@ -2,14 +2,10 @@ id: heroiccassandra2
 description: |
   Cassandra clusters for Heroic
 
-system: heroiccassandra2
+system: heroic
 
-# Main owner of this service
 owner: hero
 
-# This reflects that intended usage of this service
-#   'private' - should only be used by owning squad
-#   'public'  - can be used by anyone
 visibility: private
 
 # Declared dependencies
