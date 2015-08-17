@@ -1,6 +1,6 @@
 id: heroicmetadata
 description: Elasticsearch cluster for metadata indices in Heroic
-system: alien
+system: heroicmetadata
 owner: hero
 visibility: private
 
@@ -13,6 +13,4 @@ facts:
     - metadata
     - elasticsearch
 
-  squads:
-    - hero
-  slack_channel: hero
+  slack_channel: monitoring-users
