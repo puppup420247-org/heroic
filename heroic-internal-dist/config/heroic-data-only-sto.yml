@@ -1,0 +1,31 @@
+port: 8080
+
+cluster:
+  useLocal: false
+  tags:
+    site: sto
+  protocols:
+    - type: nativerpc
+  capabilities:
+    - WRITE
+    - QUERY
+  discovery:
+    type: static
+    nodes:
+      - nativerpc://localhost
+
+metrics:
+  backends:
+    - type: datastax
+      group: heroic
+      seeds:
+        - sto3-heroiccassandra-a1.spotify.net
+        - sto3-heroiccassandra-a2.spotify.net
+        - sto3-heroiccassandra-a3.spotify.net
+      pools:
+        readQueueSize: 100000
+
+ingestion:
+  updateMetrics: false
+  updateMetadata: false
+  updateSuggestions: false
