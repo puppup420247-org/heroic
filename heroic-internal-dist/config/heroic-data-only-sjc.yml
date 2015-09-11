@@ -5,9 +5,9 @@ metrics:
     - type: datastax
       group: heroic
       seeds:
-        - sjc1-heroiccassandra-a1.spotify.net
-        - sjc1-heroiccassandra-a2.spotify.net
-        - sjc1-heroiccassandra-a3.spotify.net
+        - sjc1-heroiccassandra2-a1.spotify.net
+        - sjc1-heroiccassandra2-a2.spotify.net
+        - sjc1-heroiccassandra2-a3.spotify.net
 
 ingestion:
   updateMetrics: false
