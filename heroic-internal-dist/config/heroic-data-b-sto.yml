@@ -31,6 +31,7 @@ metrics:
 metadata:
   backends:
     - type: elasticsearch
+      backendType: v1
       connection:
         clusterName: heroic-sto
         index:
@@ -44,15 +45,16 @@ metadata:
 suggest:
   backends:
     - type: elasticsearch
+      backendType: v1
       connection:
-        clusterName: heroic-suggest-sto
+        clusterName: heroic-suggest-sto-b
         index:
           type: rotating
-          pattern: heroic-suggest-%s
+          pattern: heroic-suggest-b-v1-%s
         seeds:
-          - sto3-heroicsuggest-a1.spotify.net
-          - sto3-heroicsuggest-a2.spotify.net
-          - sto3-heroicsuggest-a3.spotify.net
+          - sto3-heroicsuggest-bdm1.spotify.net
+          - sto3-heroicsuggest-bdm2.spotify.net
+          - sto3-heroicsuggest-bdm3.spotify.net
 
 ingestion:
   updateMetrics: false
