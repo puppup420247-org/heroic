@@ -1,0 +1,42 @@
+cluster:
+  tags:
+    site: local
+  protocols:
+    - type: http
+    - type: nativerpc
+      port: 1394
+      heartbeatInterval: 3000
+  capabilities:
+    - QUERY
+  discovery:
+    type: static
+    nodes:
+      - nativerpc://ash2-heroic-a1.spotify.net:1394
+      - nativerpc://ash2-heroic-a2.spotify.net:1394
+      - nativerpc://ash2-heroic-a3.spotify.net:1394
+      - nativerpc://sjc1-heroic-a1.spotify.net:1394
+      - nativerpc://sjc1-heroic-a2.spotify.net:1394
+      - nativerpc://sjc1-heroic-a3.spotify.net:1394
+      - nativerpc://sto1-heroic-a1.spotify.net:1394
+      - nativerpc://sto1-heroic-a2.spotify.net:1394
+      - nativerpc://sto1-heroic-a3.spotify.net:1394
+      - nativerpc://lon3-heroic-a1.spotify.net:1394
+      - nativerpc://lon3-heroic-a2.spotify.net:1394
+      - nativerpc://lon3-heroic-a3.spotify.net:1394
+      - nativerpc://lon3-heroic-a4.spotify.net:1394
+      - nativerpc://lon3-heroic-a5.spotify.net:1394
+      - nativerpc://lon3-heroic-a6.spotify.net:1394
+      - nativerpc://lon3-heroic-a7.spotify.net:1394
+      - nativerpc://awsuse1-heroic-a1.shared.cloud.spotify.net:1394
+      - nativerpc://awsuse1-heroic-a2.shared.cloud.spotify.net:1394
+      - nativerpc://awseu3-heroic-a1.shared.cloud.spotify.net:1394
+      - nativerpc://awseu3-heroic-a2.shared.cloud.spotify.net:1394
+      - nativerpc://awseu3-heroic-a3.shared.cloud.spotify.net:1394
+      - nativerpc://awseu3-heroic-a4.shared.cloud.spotify.net:1394
+      - nativerpc://gcb2-heroic-a1.gcb2.spotify.net:1394
+      - nativerpc://gcb2-heroic-a2.gcb2.spotify.net:1394
+      - nativerpc://gcb2-heroic-a3.gcb2.spotify.net:1394
+      - nativerpc://gcb2-heroic-a4.gcb2.spotify.net:1394
+      - nativerpc://gcb2-heroic-a5.gcb2.spotify.net:1394
+      - nativerpc://gcb2-heroic-a6.gcb2.spotify.net:1394
+      - nativerpc://gcb2-heroic-a7.gcb2.spotify.net:1394
