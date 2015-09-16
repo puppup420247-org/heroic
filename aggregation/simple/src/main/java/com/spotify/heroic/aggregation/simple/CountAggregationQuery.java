@@ -21,24 +21,23 @@
 
 package com.spotify.heroic.aggregation.simple;
 
-import lombok.Data;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
-import com.spotify.heroic.aggregation.AggregationQuery;
+import com.spotify.heroic.aggregation.AggregationContext;
+import com.spotify.heroic.aggregation.SamplingQuery;
+
+import lombok.Data;
 
 @Data
-public class CountAggregationQuery implements AggregationQuery<CountAggregation> {
-    private final AggregationSamplingQuery sampling;
-
+public class CountAggregationQuery extends SamplingAggregationQuery {
     @JsonCreator
-    public CountAggregationQuery(@JsonProperty("sampling") AggregationSamplingQuery sampling) {
-        this.sampling = Optional.fromNullable(sampling).or(AggregationSamplingQuery.DEFAULT_SUPPLIER);
+    public CountAggregationQuery(@JsonProperty("sampling") SamplingQuery sampling) {
+        super(Optional.fromNullable(sampling).or(SamplingQuery::empty));
     }
 
     @Override
-    public CountAggregation build() {
-        return new CountAggregation(sampling.build());
+    public CountAggregation build(final AggregationContext context, final long size, final long extent) {
+        return new CountAggregation(size, extent);
     }
 }

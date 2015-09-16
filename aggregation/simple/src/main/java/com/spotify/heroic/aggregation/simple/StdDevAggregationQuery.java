@@ -21,24 +21,25 @@
 
 package com.spotify.heroic.aggregation.simple;
 
-import lombok.Data;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
-import com.spotify.heroic.aggregation.AggregationQuery;
+import com.spotify.heroic.aggregation.AggregationContext;
+import com.spotify.heroic.aggregation.SamplingQuery;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @Data
-public class StdDevAggregationQuery implements AggregationQuery<StdDevAggregation> {
-    private final AggregationSamplingQuery sampling;
-
+@EqualsAndHashCode(callSuper = true)
+public class StdDevAggregationQuery extends SamplingAggregationQuery {
     @JsonCreator
-    public StdDevAggregationQuery(@JsonProperty("sampling") AggregationSamplingQuery sampling) {
-        this.sampling = Optional.fromNullable(sampling).or(AggregationSamplingQuery.DEFAULT_SUPPLIER);
+    public StdDevAggregationQuery(@JsonProperty("sampling") SamplingQuery sampling) {
+        super(Optional.fromNullable(sampling).or(SamplingQuery::empty));
     }
 
     @Override
-    public StdDevAggregation build() {
-        return new StdDevAggregation(sampling.build());
+    public StdDevAggregation build(AggregationContext context, final long size, final long extent) {
+        return new StdDevAggregation(size, extent);
     }
 }

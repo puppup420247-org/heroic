@@ -21,27 +21,24 @@
 
 package com.spotify.heroic.aggregation.simple;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.aggregation.BucketAggregation;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.Point;
+
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.BucketAggregation;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Sampling;
-
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true, of = { "NAME" })
-public class TemplateAggregation extends BucketAggregation<DataPoint, DataPoint, SumBucket> {
+public class TemplateAggregation extends BucketAggregation<SumBucket> {
     public static final String NAME = "tpl";
 
-    public TemplateAggregation(Sampling sampling) {
-        super(sampling, DataPoint.class, DataPoint.class);
-    }
-
     @JsonCreator
-    public static TemplateAggregation create(@JsonProperty("sampling") Sampling sampling) {
-        return new TemplateAggregation(sampling);
+    public TemplateAggregation(@JsonProperty("size") final long size, @JsonProperty("extent") final long extent) {
+        super(size, extent, ImmutableSet.of(MetricType.POINT), MetricType.POINT);
     }
 
     @Override
@@ -50,7 +47,7 @@ public class TemplateAggregation extends BucketAggregation<DataPoint, DataPoint,
     }
 
     @Override
-    protected DataPoint build(SumBucket bucket) {
-        return new DataPoint(bucket.timestamp(), 0.0);
+    protected Point build(SumBucket bucket) {
+        return new Point(bucket.timestamp(), 0.0);
     }
 }

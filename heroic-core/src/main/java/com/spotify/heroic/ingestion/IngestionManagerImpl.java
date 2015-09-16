@@ -29,15 +29,15 @@ import javax.inject.Inject;
 
 import lombok.extern.slf4j.Slf4j;
 
-import com.spotify.heroic.exceptions.BackendGroupException;
+import com.spotify.heroic.common.BackendGroupException;
+import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.metadata.MetadataBackend;
 import com.spotify.heroic.metadata.MetadataManager;
+import com.spotify.heroic.metric.Metric;
 import com.spotify.heroic.metric.MetricBackend;
 import com.spotify.heroic.metric.MetricManager;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.metric.model.WriteResult;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.DateRange;
+import com.spotify.heroic.metric.WriteMetric;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.IngestionManagerReporter;
 import com.spotify.heroic.suggest.SuggestBackend;
 import com.spotify.heroic.suggest.SuggestManager;
@@ -200,18 +200,18 @@ public class IngestionManagerImpl implements IngestionManager {
     }
 
     private DateRange rangeFrom(WriteMetric write) {
-        if (write.isEmpty())
+        final Iterator<Metric> iterator = write.all().iterator();
+
+        if (!iterator.hasNext())
             throw new IllegalArgumentException("write batch must not be empty");
 
-        final Iterator<DataPoint> iterator = write.getData().iterator();
-
-        final DataPoint first = iterator.next();
+        final Metric first = iterator.next();
 
         long start = first.getTimestamp();
         long end = first.getTimestamp();
 
         while (iterator.hasNext()) {
-            final DataPoint d = iterator.next();
+            final Metric d = iterator.next();
             start = Math.min(d.getTimestamp(), start);
             end = Math.max(d.getTimestamp(), end);
         }

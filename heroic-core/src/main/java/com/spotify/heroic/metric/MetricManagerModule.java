@@ -28,7 +28,7 @@ import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
-import lombok.RequiredArgsConstructor;
+import lombok.Data;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -40,13 +40,13 @@ import com.google.inject.PrivateModule;
 import com.google.inject.Provides;
 import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Names;
+import com.spotify.heroic.common.BackendGroups;
 import com.spotify.heroic.statistics.ClusteredMetricManagerReporter;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.LocalMetricManagerReporter;
 import com.spotify.heroic.statistics.MetricBackendGroupReporter;
-import com.spotify.heroic.utils.BackendGroups;
 
-@RequiredArgsConstructor
+@Data
 public class MetricManagerModule extends PrivateModule {
     private static final List<MetricModule> DEFAULT_BACKENDS = ImmutableList.of();
     public static final boolean DEFAULT_UPDATE_METADATA = false;
@@ -55,7 +55,7 @@ public class MetricManagerModule extends PrivateModule {
     public static final long DEFAULT_FLUSHING_INTERVAL = 1000;
     public static final long DEFAULT_AGGREGATION_LIMIT = 10000;
     public static final long DEFAULT_DATA_LIMIT = 30000000;
-    public static final int DEFAULT_GROUP_FETCH_PARALLELISM = 2;
+    public static final int DEFAULT_FETCH_PARALLELISM = 100;
 
     private final List<MetricModule> backends;
     private final List<String> defaultBackends;
@@ -81,9 +81,9 @@ public class MetricManagerModule extends PrivateModule {
     private final long dataLimit;
 
     /**
-     * How many result groups a single session is allowed to fetch in parallel.
+     * How many data fetches are performed in parallel.
      */
-    private final int groupFetchParallelism;
+    private final int fetchParallelism;
 
     @JsonCreator
     public MetricManagerModule(@JsonProperty("backends") List<MetricModule> backends,
@@ -97,7 +97,7 @@ public class MetricManagerModule extends PrivateModule {
         this.seriesLimit = Optional.fromNullable(seriesLimit).or(DEFAULT_SERIES_LIMIT);
         this.aggregationLimit = Optional.fromNullable(aggregationLimit).or(DEFAULT_AGGREGATION_LIMIT);
         this.dataLimit = Optional.fromNullable(dataLimit).or(DEFAULT_DATA_LIMIT);
-        this.groupFetchParallelism = Optional.fromNullable(groupFetchParallelism).or(DEFAULT_GROUP_FETCH_PARALLELISM);
+        this.fetchParallelism = Optional.fromNullable(groupFetchParallelism).or(DEFAULT_FETCH_PARALLELISM);
     }
 
     public static Supplier<MetricManagerModule> defaultSupplier() {
@@ -139,10 +139,8 @@ public class MetricManagerModule extends PrivateModule {
     protected void configure() {
         bindBackends(backends);
         bind(MetricManager.class).toInstance(
-                new LocalMetricManager(groupLimit, seriesLimit, aggregationLimit, dataLimit, groupFetchParallelism));
+                new LocalMetricManager(groupLimit, seriesLimit, aggregationLimit, dataLimit, fetchParallelism));
         expose(MetricManager.class);
-        bind(ClusteredMetricManager.class).toInstance(new CoreClusteredMetricManager());
-        expose(ClusteredMetricManager.class);
     }
 
     private void bindBackends(final Collection<MetricModule> configs) {

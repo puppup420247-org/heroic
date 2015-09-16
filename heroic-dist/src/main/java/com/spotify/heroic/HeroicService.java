@@ -26,9 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import lombok.Data;
 import lombok.ToString;
@@ -40,7 +38,6 @@ import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 
 import com.spotify.heroic.HeroicCore.Builder;
-import com.spotify.heroic.profile.GeneratedProfile;
 import com.spotify.heroic.reflection.ResourceException;
 import com.spotify.heroic.reflection.ResourceFileLoader;
 import com.spotify.heroic.reflection.ResourceInstance;
@@ -59,12 +56,6 @@ public class HeroicService {
      * Default configuration path.
      */
     public static final Path DEFAULT_CONFIG = Paths.get("heroic.yml");
-
-    private static final Map<String, HeroicProfile> PROFILES = new HashMap<>();
-
-    static {
-        PROFILES.put("generated", new GeneratedProfile());
-    }
 
     public static void main(final String[] args) throws Exception {
         main(args, null);
@@ -173,7 +164,7 @@ public class HeroicService {
     }
 
     private static HeroicProfile setupProfile(final String profile) {
-        final HeroicProfile p = PROFILES.get(profile);
+        final HeroicProfile p = HeroicModules.PROFILES.get(profile);
 
         if (p == null)
             throw new IllegalArgumentException("No such profile: " + profile);
@@ -200,19 +191,13 @@ public class HeroicService {
         try {
             parser.parseArgument(args);
         } catch (final CmdLineException e) {
-            log.error("Argument error", e);
+            log.error("Error parsing arguments", e);
             return null;
         }
 
         if (params.help) {
             parser.printUsage(System.out);
-
-            System.out.println("Available Profiles (activate with: -p <profile>):");
-
-            for (final Map.Entry<String, HeroicProfile> entry : PROFILES.entrySet()) {
-                System.out.println("  " + entry.getKey() + " - " + entry.getValue().description());
-            }
-
+            HeroicModules.printProfileUsage(System.out, "-p");
             return null;
         }
 

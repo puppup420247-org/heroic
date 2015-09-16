@@ -24,51 +24,80 @@ package com.spotify.heroic.http.query;
 import java.io.IOException;
 import java.util.List;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
-import com.spotify.heroic.metric.model.RequestError;
-import com.spotify.heroic.metric.model.ShardLatency;
-import com.spotify.heroic.metric.model.ShardedResultGroup;
-import com.spotify.heroic.metric.model.TagValues;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.DateRange;
-import com.spotify.heroic.model.Event;
-import com.spotify.heroic.model.Statistics;
+import com.google.common.collect.ImmutableList;
+import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.common.Statistics;
+import com.spotify.heroic.metric.Event;
+import com.spotify.heroic.metric.MetricTypedGroup;
+import com.spotify.heroic.metric.Point;
+import com.spotify.heroic.metric.RequestError;
+import com.spotify.heroic.metric.ShardLatency;
+import com.spotify.heroic.metric.ShardTrace;
+import com.spotify.heroic.metric.ShardedResultGroup;
+import com.spotify.heroic.metric.Spread;
+import com.spotify.heroic.metric.TagValues;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class QueryMetricsResponse {
     private static final String SERIES = "series";
     private static final String EVENTS = "events";
+    private static final String SPREADS = "spreads";
+
+    @Getter
+    private final DateRange range;
+
+    @Getter
+    @JsonSerialize(using = ResultSerializer.class)
+    private final List<ShardedResultGroup> result;
+
+    @Getter
+    private final Statistics statistics = Statistics.EMPTY;
+
+    @Getter
+    private final List<RequestError> errors;
+
+    /**
+     * Shard latencies associated with the query.
+     * @deprecated Use {@link #trace} instead.
+     */
+    @Getter
+    private final List<ShardLatency> latencies = ImmutableList.of();
+
+    @Getter
+    private final ShardTrace trace;
 
     public static class ResultSerializer extends JsonSerializer<Object> {
         @SuppressWarnings("unchecked")
         @Override
-        public void serialize(Object value, JsonGenerator g, SerializerProvider provider) throws IOException,
-                JsonProcessingException {
+        public void serialize(Object value, JsonGenerator g, SerializerProvider provider)
+                throws IOException, JsonProcessingException {
 
             final List<ShardedResultGroup> result = (List<ShardedResultGroup>) value;
 
             g.writeStartArray();
 
-            for (final ShardedResultGroup group : result) {
-                if (group.getType().equals(DataPoint.class)) {
-                    final List<TagValues> tags = group.getGroup();
-                    final List<DataPoint> datapoints = (List<DataPoint>) group.getValues();
-                    writeDataPoints(g, group, tags, datapoints);
-                    continue;
-                }
+            for (final ShardedResultGroup resultGroup : result) {
+                final List<TagValues> tags = resultGroup.getTags();
+                final MetricTypedGroup group = resultGroup.getGroup();
 
-                if (group.getType().equals(Event.class)) {
-                    final List<TagValues> tags = group.getGroup();
-                    final List<Event> events = (List<Event>) group.getValues();
-                    writeEvents(g, group, tags, events);
-                    continue;
+                switch (group.getType()) {
+                case POINT:
+                    writeDataPoints(g, resultGroup, tags, group.getDataAs(Point.class));
+                    break;
+                case EVENT:
+                    writeEvents(g, resultGroup, tags, group.getDataAs(Event.class));
+                    break;
+                case SPREAD:
+                    writeSpreads(g, resultGroup, tags, group.getDataAs(Spread.class));
+                    break;
                 }
             }
 
@@ -76,17 +105,53 @@ public class QueryMetricsResponse {
         }
 
         private void writeDataPoints(JsonGenerator g, final ShardedResultGroup group, final List<TagValues> tags,
-                final List<DataPoint> datapoints) throws IOException {
+                final List<Point> datapoints) throws IOException {
             g.writeStartObject();
-            g.writeFieldName("type");
-            g.writeString(SERIES);
+            g.writeStringField("type", SERIES);
+            g.writeStringField("hash", Integer.toHexString(group.hashCode()));
+            g.writeObjectField("shard", group.getShard());
+            g.writeNumberField("cadence", group.getCadence());
+            g.writeObjectField("values", datapoints);
 
-            g.writeFieldName("hash");
-            g.writeString(Integer.toHexString(group.hashCode()));
+            writeTags(g, tags);
+            writeTagCounts(g, tags);
 
-            g.writeFieldName("shard");
-            g.writeObject(group.getShard());
+            g.writeEndObject();
+        }
 
+        private void writeEvents(JsonGenerator g, final ShardedResultGroup group, final List<TagValues> tags,
+                final List<Event> events) throws IOException {
+            g.writeStartObject();
+
+            g.writeStringField("type", EVENTS);
+            g.writeStringField("hash", Integer.toHexString(group.hashCode()));
+            g.writeObjectField("shard", group.getShard());
+            g.writeNumberField("cadence", group.getCadence());
+            g.writeObjectField("values", events);
+
+            writeTags(g, tags);
+            writeTagCounts(g, tags);
+
+            g.writeEndObject();
+        }
+
+        private void writeSpreads(JsonGenerator g, final ShardedResultGroup group, final List<TagValues> tags,
+                final List<Spread> spreads) throws IOException {
+            g.writeStartObject();
+
+            g.writeStringField("type", SPREADS);
+            g.writeStringField("hash", Integer.toHexString(group.hashCode()));
+            g.writeObjectField("shard", group.getShard());
+            g.writeNumberField("cadence", group.getCadence());
+            g.writeObjectField("values", spreads);
+
+            writeTags(g, tags);
+            writeTagCounts(g, tags);
+
+            g.writeEndObject();
+        }
+
+        private void writeTags(JsonGenerator g, final List<TagValues> tags) throws IOException {
             g.writeFieldName("tags");
 
             g.writeStartObject();
@@ -97,12 +162,13 @@ public class QueryMetricsResponse {
                 if (values.size() != 1)
                     continue;
 
-                g.writeFieldName(pair.getKey());
-                g.writeString(values.iterator().next());
+                g.writeStringField(pair.getKey(), values.iterator().next());
             }
 
             g.writeEndObject();
+        }
 
+        private void writeTagCounts(JsonGenerator g, final List<TagValues> tags) throws IOException {
             g.writeFieldName("tagCounts");
 
             g.writeStartObject();
@@ -113,62 +179,10 @@ public class QueryMetricsResponse {
                 if (values.size() <= 1)
                     continue;
 
-                g.writeFieldName(pair.getKey());
-                g.writeNumber(values.size());
+                g.writeNumberField(pair.getKey(), values.size());
             }
-
-            g.writeEndObject();
-
-            g.writeFieldName("values");
-            g.writeObject(datapoints);
-
-            g.writeEndObject();
-        }
-
-        private void writeEvents(JsonGenerator g, final ShardedResultGroup group, final List<TagValues> tags,
-                final List<Event> events) throws IOException {
-            g.writeStartObject();
-
-            g.writeFieldName("type");
-            g.writeString(EVENTS);
-
-            g.writeFieldName("hash");
-            g.writeString(Integer.toHexString(group.hashCode()));
-
-            g.writeFieldName("shard");
-            g.writeObject(group.getShard());
-
-            g.writeFieldName("tags");
-
-            g.writeStartObject();
-
-            for (final TagValues pair : tags) {
-                g.writeFieldName(pair.getKey());
-                g.writeObject(pair.getValues());
-            }
-
-            g.writeEndObject();
-
-            g.writeFieldName("values");
-            g.writeObject(events);
 
             g.writeEndObject();
         }
     }
-
-    @Getter
-    private final DateRange range;
-
-    @Getter
-    @JsonSerialize(using = ResultSerializer.class)
-    private final List<ShardedResultGroup> result;
-
-    @Getter
-    private final Statistics statistics;
-
-    @Getter
-    private final List<RequestError> errors;
-
-    @Getter
-    private final List<ShardLatency> latencies;
 }

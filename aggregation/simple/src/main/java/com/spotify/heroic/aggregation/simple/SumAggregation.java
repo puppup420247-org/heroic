@@ -21,41 +21,33 @@
 
 package com.spotify.heroic.aggregation.simple;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.aggregation.BucketAggregation;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.Point;
+
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.BucketAggregation;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Sampling;
-
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true, of = { "NAME" })
-public class SumAggregation extends BucketAggregation<DataPoint, DataPoint, SumBucket> {
+public class SumAggregation extends BucketAggregation<StripedSumBucket> {
     public static final String NAME = "sum";
 
-    public SumAggregation(Sampling sampling) {
-        super(sampling, DataPoint.class, DataPoint.class);
-    }
-
     @JsonCreator
-    public static SumAggregation create(@JsonProperty("sampling") Sampling sampling) {
-        return new SumAggregation(sampling);
+    public SumAggregation(@JsonProperty("size") final long size, @JsonProperty("extent") final long extent) {
+        super(size, extent, ImmutableSet.of(MetricType.POINT, MetricType.SPREAD), MetricType.POINT);
     }
 
     @Override
-    protected SumBucket buildBucket(long timestamp) {
-        return new SumBucket(timestamp);
+    protected StripedSumBucket buildBucket(long timestamp) {
+        return new StripedSumBucket(timestamp);
     }
 
     @Override
-    protected DataPoint build(SumBucket bucket) {
-        final long count = bucket.count();
-
-        if (count == 0)
-            return new DataPoint(bucket.timestamp(), Double.NaN);
-
-        return new DataPoint(bucket.timestamp(), bucket.value());
+    protected Point build(StripedSumBucket bucket) {
+        return new Point(bucket.timestamp(), bucket.value());
     }
 }

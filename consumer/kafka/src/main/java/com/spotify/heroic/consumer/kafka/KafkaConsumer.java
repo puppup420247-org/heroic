@@ -28,11 +28,11 @@ import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 
 import com.google.inject.Inject;
+import com.spotify.heroic.common.BackendGroupException;
 import com.spotify.heroic.consumer.Consumer;
-import com.spotify.heroic.exceptions.BackendGroupException;
 import com.spotify.heroic.ingestion.IngestionManager;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.metric.model.WriteResult;
+import com.spotify.heroic.metric.WriteMetric;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.ConsumerReporter;
 
 import eu.toolchain.async.AsyncFramework;
@@ -65,12 +65,12 @@ public class KafkaConsumer implements Consumer {
     }
 
     @Override
-    public AsyncFuture<Void> start() throws Exception {
+    public AsyncFuture<Void> start() {
         return connection.start();
     }
 
     @Override
-    public AsyncFuture<Void> stop() throws Exception {
+    public AsyncFuture<Void> stop() {
         return connection.stop();
     }
 

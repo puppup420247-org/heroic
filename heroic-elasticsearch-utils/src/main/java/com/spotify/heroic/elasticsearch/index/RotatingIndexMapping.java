@@ -36,7 +36,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
 import com.google.common.base.Supplier;
-import com.spotify.heroic.model.DateRange;
+import com.spotify.heroic.common.DateRange;
 
 @ToString
 public class RotatingIndexMapping implements IndexMapping {
@@ -142,7 +142,7 @@ public class RotatingIndexMapping implements IndexMapping {
     }
 
     private IndicesOptions options() {
-        return IndicesOptions.fromOptions(true, false, false, false);
+        return IndicesOptions.fromOptions(true, true, false, false);
     }
 
     public static Supplier<IndexMapping> defaultSupplier() {
@@ -152,5 +152,40 @@ public class RotatingIndexMapping implements IndexMapping {
                 return new RotatingIndexMapping(null, null, null, null);
             }
         };
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+        private Long interval;
+        private Integer maxReadIndices;
+        private Integer maxWriteIndices;
+        private String pattern;
+
+        public Builder interval(Long interval) {
+            this.interval = interval;
+            return this;
+        }
+
+        public Builder maxReadIndices(Integer maxReadIndices) {
+            this.maxReadIndices = maxReadIndices;
+            return this;
+        }
+
+        public Builder maxWriteIndices(Integer maxWriteIndices) {
+            this.maxWriteIndices = maxWriteIndices;
+            return this;
+        }
+
+        public Builder pattern(String pattern) {
+            this.pattern = pattern;
+            return this;
+        }
+
+        public RotatingIndexMapping build() {
+            return new RotatingIndexMapping(interval, maxReadIndices, maxWriteIndices, pattern);
+        }
     }
 }

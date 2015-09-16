@@ -21,6 +21,8 @@
 
 package com.spotify.heroic.http.write;
 
+import java.util.List;
+
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -31,9 +33,11 @@ import javax.ws.rs.core.Response;
 
 import lombok.Data;
 
+import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import com.spotify.heroic.ingestion.IngestionManager;
-import com.spotify.heroic.metric.model.WriteMetric;
+import com.spotify.heroic.metric.MetricTypedGroup;
+import com.spotify.heroic.metric.WriteMetric;
 
 @Path("/write")
 @Produces(MediaType.APPLICATION_JSON)
@@ -50,7 +54,9 @@ public class WriteResource {
     @POST
     @Path("/metrics")
     public Response metrics(@QueryParam("backend") String backendGroup, WriteMetrics write) throws Exception {
-        ingestion.write(backendGroup, new WriteMetric(write.getSeries(), write.getData()));
+        // XXX: perform write
+        final List<MetricTypedGroup> data = ImmutableList.of();
+        ingestion.write(backendGroup, new WriteMetric(write.getSeries(), data));
         return Response.status(Response.Status.OK).entity(new WriteMetricsResponse(true)).build();
     }
 }

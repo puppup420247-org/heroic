@@ -27,16 +27,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Named;
 import javax.inject.Singleton;
 
-import lombok.RequiredArgsConstructor;
-
 import org.apache.commons.lang3.tuple.Pair;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentFactory;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
 import com.google.common.cache.Cache;
@@ -47,22 +43,27 @@ import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.PrivateModule;
 import com.google.inject.Provides;
-import com.spotify.heroic.concurrrency.ReadWriteThreadPools;
+import com.google.inject.Scopes;
+import com.spotify.heroic.common.Groups;
+import com.spotify.heroic.common.Series;
+import com.spotify.heroic.elasticsearch.BackendType;
+import com.spotify.heroic.elasticsearch.BackendTypeFactory;
 import com.spotify.heroic.elasticsearch.Connection;
-import com.spotify.heroic.elasticsearch.ElasticsearchUtils;
+import com.spotify.heroic.elasticsearch.DefaultRateLimitedCache;
+import com.spotify.heroic.elasticsearch.DisabledRateLimitedCache;
 import com.spotify.heroic.elasticsearch.ManagedConnectionFactory;
 import com.spotify.heroic.elasticsearch.RateLimitedCache;
 import com.spotify.heroic.metadata.MetadataBackend;
 import com.spotify.heroic.metadata.MetadataModule;
-import com.spotify.heroic.model.Series;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.LocalMetadataBackendReporter;
 import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
-import com.spotify.heroic.utils.GroupedUtils;
 
-import eu.toolchain.async.AsyncFramework;
+import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.Managed;
+import lombok.Data;
 
-@RequiredArgsConstructor
+@Data
 public final class ElasticsearchMetadataModule implements MetadataModule {
     private static final double DEFAULT_WRITES_PER_SECOND = 3000d;
     private static final long DEFAULT_WRITES_CACHE_DURATION_MINUTES = 240l;
@@ -70,85 +71,45 @@ public final class ElasticsearchMetadataModule implements MetadataModule {
     public static final String DEFAULT_TEMPLATE_NAME = "heroic-metadata";
 
     private final String id;
-    private final Set<String> groups;
+    private final Groups groups;
     private final ManagedConnectionFactory connection;
-    private final ReadWriteThreadPools.Config pools;
     private final String templateName;
 
     private final double writesPerSecond;
     private final long writeCacheDurationMinutes;
 
+    private static BackendTypeFactory<ElasticsearchMetadataModule, MetadataBackend> defaultSetup = MetadataBackendKV.factory();
+
+    private static final Map<String, BackendTypeFactory<ElasticsearchMetadataModule, MetadataBackend>> backendTypes = new HashMap<>();
+
+    static {
+        backendTypes.put("kv", defaultSetup);
+        backendTypes.put("v1", MetadataBackendV1.factory());
+    }
+
+    @JsonIgnore
+    private final BackendTypeFactory<ElasticsearchMetadataModule, MetadataBackend> backendTypeBuilder;
+
     @JsonCreator
     public ElasticsearchMetadataModule(@JsonProperty("id") String id, @JsonProperty("group") String group,
-            @JsonProperty("groups") Set<String> groups,
-            @JsonProperty("connection") ManagedConnectionFactory connection,
-            @JsonProperty("pools") ReadWriteThreadPools.Config pools, @JsonProperty("writesPerSecond") Double writesPerSecond, @JsonProperty("writeCacheDurationMinutes") Long writeCacheDurationMinutes,
-            @JsonProperty("templateName") String templateName) throws Exception {
+            @JsonProperty("groups") Set<String> groups, @JsonProperty("connection") ManagedConnectionFactory connection,
+            @JsonProperty("writesPerSecond") Double writesPerSecond,
+            @JsonProperty("writeCacheDurationMinutes") Long writeCacheDurationMinutes,
+            @JsonProperty("templateName") String templateName, @JsonProperty("backendType") String backendType) {
         this.id = id;
-        this.groups = GroupedUtils.groups(group, groups, DEFAULT_GROUP);
+        this.groups = Groups.groups(group, groups, DEFAULT_GROUP);
         this.connection = Optional.fromNullable(connection).or(ManagedConnectionFactory.provideDefault());
-        this.pools = Optional.fromNullable(pools).or(ReadWriteThreadPools.Config.provideDefault());
         this.writesPerSecond = Optional.fromNullable(writesPerSecond).or(DEFAULT_WRITES_PER_SECOND);
-        this.writeCacheDurationMinutes = Optional.fromNullable(writeCacheDurationMinutes).or(DEFAULT_WRITES_CACHE_DURATION_MINUTES);
+        this.writeCacheDurationMinutes = Optional.fromNullable(writeCacheDurationMinutes)
+                .or(DEFAULT_WRITES_CACHE_DURATION_MINUTES);
         this.templateName = Optional.fromNullable(templateName).or(DEFAULT_TEMPLATE_NAME);
-
-    }
-
-    private static Map<String, XContentBuilder> mappings() throws IOException {
-        final Map<String, XContentBuilder> mappings = new HashMap<>();
-        mappings.put("metadata", buildMetadataMapping());
-        return mappings;
-    }
-
-    private static XContentBuilder buildMetadataMapping() throws IOException {
-        final XContentBuilder b = XContentFactory.jsonBuilder();
-
-        // @formatter:off
-        b.startObject();
-          b.startObject(ElasticsearchUtils.TYPE_METADATA);
-            b.startObject("properties");
-              b.startObject(ElasticsearchUtils.SERIES_KEY);
-                b.field("type", "string");
-                b.field("index", "not_analyzed");
-                b.field("doc_values", true);
-              b.endObject();
-
-              b.startObject(ElasticsearchUtils.SERIES_TAGS);
-                b.field("type", "nested");
-                b.startObject("properties");
-                  b.startObject(ElasticsearchUtils.TAGS_KEY);
-                    b.field("type", "string");
-                    b.startObject("fields");
-                      b.startObject("raw");
-                        b.field("type", "string");
-                        b.field("index", "not_analyzed");
-                        b.field("doc_values", true);
-                      b.endObject();
-                    b.endObject();
-                  b.endObject();
-
-                  b.startObject(ElasticsearchUtils.TAGS_VALUE);
-                    b.field("type", "string");
-                    b.startObject("fields");
-                      b.startObject("raw");
-                        b.field("type", "string");
-                        b.field("index", "not_analyzed");
-                        b.field("doc_values", true);
-                      b.endObject();
-                    b.endObject();
-                  b.endObject();
-                b.endObject();
-              b.endObject();
-            b.endObject();
-          b.endObject();
-        b.endObject();
-        // @formatter:on
-
-        return b;
+        this.backendTypeBuilder = Optional.fromNullable(backendTypes.get(backendType)).or(defaultSetup);
     }
 
     @Override
     public Module module(final Key<MetadataBackend> key, final String id) {
+        final BackendType<MetadataBackend> backendType = backendTypeBuilder.setup(this);
+
         return new PrivateModule() {
             @Provides
             @Singleton
@@ -158,34 +119,33 @@ public final class ElasticsearchMetadataModule implements MetadataModule {
 
             @Provides
             @Singleton
-            @Named("groups")
-            public Set<String> groups() {
+            public Groups groups() {
                 return groups;
-            }
-
-            @Provides
-            @Singleton
-            public ReadWriteThreadPools pools(AsyncFramework async, LocalMetadataBackendReporter reporter) {
-                return pools.construct(async, reporter.newThreadPool());
             }
 
             @Provides
             @Inject
             public Managed<Connection> connection(ManagedConnectionFactory builder) throws IOException {
-                return builder.construct(templateName, mappings());
+                return builder.construct(templateName, backendType.mappings());
             }
 
             @Provides
             @Singleton
-            public RateLimitedCache<Pair<String, Series>, Boolean> writeCache() throws IOException {
+            public RateLimitedCache<Pair<String, Series>, AsyncFuture<WriteResult>> writeCache() throws IOException {
+                Cache<Pair<String, Series>, AsyncFuture<WriteResult>> cache = CacheBuilder.newBuilder()
+                        .concurrencyLevel(4)
+                        .expireAfterWrite(writeCacheDurationMinutes, TimeUnit.MINUTES).build();
+
+                if (writesPerSecond == 0d)
+                    return new DisabledRateLimitedCache<Pair<String, Series>, AsyncFuture<WriteResult>>(cache);
+
                 RateLimiter rateLimiter = RateLimiter.create(writesPerSecond);
-                Cache<Pair<String, Series>, Boolean> cache = CacheBuilder.newBuilder().concurrencyLevel(4).expireAfterWrite(writeCacheDurationMinutes, TimeUnit.MINUTES).build();
-                return new RateLimitedCache<>(cache, rateLimiter);
+                return new DefaultRateLimitedCache<>(cache, rateLimiter);
             }
             @Override
             protected void configure() {
                 bind(ManagedConnectionFactory.class).toInstance(connection);
-                bind(key).to(ElasticsearchMetadataBackend.class);
+                bind(key).to(backendType.type()).in(Scopes.SINGLETON);
                 expose(key);
             }
         };
@@ -199,5 +159,65 @@ public final class ElasticsearchMetadataModule implements MetadataModule {
     @Override
     public String buildId(int i) {
         return String.format("elasticsearch#%d", i);
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private String id;
+        private String group;
+        private Set<String> groups;
+        private ManagedConnectionFactory connection;
+        private Double writesPerSecond;
+        private Long writeCacheDurationMinutes;
+        private String templateName;
+        private String backendType;
+
+        public Builder id(String id) {
+            this.id = id;
+            return this;
+        }
+
+        public Builder group(String group) {
+            this.group = group;
+            return this;
+        }
+
+        public Builder group(Set<String> groups) {
+            this.groups = groups;
+            return this;
+        }
+
+        public Builder connection(ManagedConnectionFactory connection) {
+            this.connection = connection;
+            return this;
+        }
+
+        public Builder writesPerSecond(Double writesPerSecond) {
+            this.writesPerSecond = writesPerSecond;
+            return this;
+        }
+
+        public Builder writeCacheDurationMinutes(Long writeCacheDurationMinutes) {
+            this.writeCacheDurationMinutes = writeCacheDurationMinutes;
+            return this;
+        }
+
+        public Builder templateName(String templateName) {
+            this.templateName = templateName;
+            return this;
+        }
+
+        public Builder backendType(String backendType) {
+            this.backendType = backendType;
+            return this;
+        }
+
+        public ElasticsearchMetadataModule build() {
+            return new ElasticsearchMetadataModule(id, group, groups, connection, writesPerSecond,
+                    writeCacheDurationMinutes, templateName, backendType);
+        }
     }
 }

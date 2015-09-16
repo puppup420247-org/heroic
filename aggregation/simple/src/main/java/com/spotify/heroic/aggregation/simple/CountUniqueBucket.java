@@ -27,10 +27,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import lombok.Data;
+import com.spotify.heroic.aggregation.AbstractAnyBucket;
+import com.spotify.heroic.metric.Metric;
 
-import com.spotify.heroic.aggregation.Bucket;
-import com.spotify.heroic.model.TimeData;
+import lombok.Data;
 
 /**
  * Bucket that counts the number of seen events.
@@ -38,7 +38,7 @@ import com.spotify.heroic.model.TimeData;
  * @author udoprog
  */
 @Data
-public class CountUniqueBucket implements Bucket<TimeData> {
+public class CountUniqueBucket extends AbstractAnyBucket {
     private final long timestamp;
     private final AtomicInteger count = new AtomicInteger(0);
     private final Set<Integer> seen = Collections.newSetFromMap(new ConcurrentHashMap<Integer, Boolean>());
@@ -48,9 +48,10 @@ public class CountUniqueBucket implements Bucket<TimeData> {
     }
 
     @Override
-    public void update(Map<String, String> tags, TimeData d) {
-        if (seen.add(tags.hashCode() ^ d.hash()))
+    public void update(Map<String, String> tags, Metric d) {
+        if (seen.add(tags.hashCode() ^ d.valueHash())) {
             count.incrementAndGet();
+        }
     }
 
     public long count() {

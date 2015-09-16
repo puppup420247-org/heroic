@@ -1,29 +1,38 @@
 package com.spotify.heroic.aggregation.simple;
 
-import java.util.HashMap;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import java.util.Collection;
 import java.util.Map;
 
-import org.junit.Assert;
 import org.junit.Test;
 
-import com.spotify.heroic.model.DataPoint;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.spotify.heroic.aggregation.DoubleBucket;
+import com.spotify.heroic.metric.Point;
 
 public class SumBucketTest {
-    private static final Map<String, String> TAGS = new HashMap<>();
+    private static final Map<String, String> tags = ImmutableMap.of();
 
-    @Test
-    public void testDefault() {
-        SumBucket b = new SumBucket(0);
-        Assert.assertEquals(0.0, b.value(), 0.0);
-        Assert.assertEquals(0, b.count());
+    public Collection<? extends DoubleBucket> buckets() {
+        return ImmutableList.<DoubleBucket> of(new SumBucket(0l), new StripedSumBucket(0l));
     }
 
     @Test
-    public void testBasic() {
-        SumBucket b = new SumBucket(0);
-        b.update(TAGS, new DataPoint(0, 10.0));
-        b.update(TAGS, new DataPoint(0, 20.0));
-        Assert.assertEquals(30.0, b.value(), 0.0);
-        Assert.assertEquals(2, b.count(), 0.0);
+    public void testZeroValue() {
+        for (final DoubleBucket bucket : buckets()) {
+            assertTrue(bucket.getClass().getSimpleName(), Double.isNaN(bucket.value()));
+        }
+    }
+
+    @Test
+    public void testAddSome() {
+        for (final DoubleBucket bucket : buckets()) {
+            bucket.updatePoint(tags, new Point(0, 10.0));
+            bucket.updatePoint(tags, new Point(0, 20.0));
+            assertEquals(bucket.getClass().getSimpleName(), 30.0, bucket.value(), 0.0);
+        }
     }
 }

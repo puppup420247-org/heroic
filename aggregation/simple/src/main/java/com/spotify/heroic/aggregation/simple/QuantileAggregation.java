@@ -21,19 +21,21 @@
 
 package com.spotify.heroic.aggregation.simple;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.aggregation.BucketAggregation;
+import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.Point;
+
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.BucketAggregation;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Sampling;
-
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true, of = { "NAME", "q", "error" })
-public class QuantileAggregation extends BucketAggregation<DataPoint, DataPoint, QuantileBucket> {
+public class QuantileAggregation extends BucketAggregation<QuantileBucket> {
     public static final String NAME = "quantile";
 
     @Getter
@@ -42,25 +44,12 @@ public class QuantileAggregation extends BucketAggregation<DataPoint, DataPoint,
     @Getter
     private final double error;
 
-    public QuantileAggregation(Sampling sampling, double q, double error) {
-        super(sampling, DataPoint.class, DataPoint.class);
+    @JsonCreator
+    public QuantileAggregation(@JsonProperty("size") final long size, @JsonProperty("extent") final long extent,
+            @JsonProperty("q") final double q, @JsonProperty("error") double error) {
+        super(size, extent, ImmutableSet.of(MetricType.POINT), MetricType.POINT);
         this.q = q;
         this.error = error;
-    }
-
-    @JsonCreator
-    public static QuantileAggregation create(@JsonProperty("sampling") Sampling sampling, @JsonProperty("q") Double q,
-            @JsonProperty("error") Double error) {
-        if (q == null)
-            throw new RuntimeException("'q' is required");
-
-        if (error == null)
-            throw new RuntimeException("'error' is required");
-
-        if (!(0 < error && error <= 1.0))
-            throw new RuntimeException("'error' must be a value between 0 and 1 (inclusive).");
-
-        return new QuantileAggregation(sampling, q, error);
     }
 
     @Override
@@ -69,7 +58,13 @@ public class QuantileAggregation extends BucketAggregation<DataPoint, DataPoint,
     }
 
     @Override
-    protected DataPoint build(QuantileBucket bucket) {
-        return new DataPoint(bucket.timestamp(), bucket.value());
+    protected Metric build(QuantileBucket bucket) {
+        final double value = bucket.value();
+
+        if (Double.isNaN(value)) {
+            return Metric.invalid();
+        }
+
+        return new Point(bucket.timestamp(), value);
     }
 }

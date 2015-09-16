@@ -21,41 +21,40 @@
 
 package com.spotify.heroic.aggregation.simple;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.aggregation.BucketAggregation;
+import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.Point;
+
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.BucketAggregation;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Sampling;
-
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true, of = { "NAME" })
-public class AverageAggregation extends BucketAggregation<DataPoint, DataPoint, SumBucket> {
+public class AverageAggregation extends BucketAggregation<StripedAverageBucket> {
     public static final String NAME = "average";
 
-    public AverageAggregation(Sampling sampling) {
-        super(sampling, DataPoint.class, DataPoint.class);
-    }
-
     @JsonCreator
-    public static AverageAggregation create(@JsonProperty("sampling") Sampling sampling) {
-        return new AverageAggregation(sampling);
+    public AverageAggregation(@JsonProperty("size") final long size, @JsonProperty("extent") final long extent) {
+        super(size, extent, ImmutableSet.of(MetricType.POINT), MetricType.POINT);
     }
 
     @Override
-    protected SumBucket buildBucket(long timestamp) {
-        return new SumBucket(timestamp);
+    protected StripedAverageBucket buildBucket(long timestamp) {
+        return new StripedAverageBucket(timestamp);
     }
 
     @Override
-    protected DataPoint build(SumBucket bucket) {
-        final long count = bucket.count();
+    protected Metric build(StripedAverageBucket bucket) {
+        final double value = bucket.value();
 
-        if (count == 0)
-            return new DataPoint(bucket.timestamp(), Double.NaN);
+        if (!Double.isFinite(value)) {
+            return Metric.invalid();
+        }
 
-        return new DataPoint(bucket.timestamp(), bucket.value() / count);
+        return new Point(bucket.timestamp(), bucket.value());
     }
 }

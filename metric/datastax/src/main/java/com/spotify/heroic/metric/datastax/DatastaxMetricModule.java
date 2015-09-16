@@ -31,8 +31,6 @@ import java.util.Set;
 import javax.inject.Named;
 import javax.inject.Singleton;
 
-import lombok.Data;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
@@ -40,15 +38,17 @@ import com.google.common.collect.ImmutableSet;
 import com.google.inject.Key;
 import com.google.inject.PrivateModule;
 import com.google.inject.Provides;
+import com.google.inject.Scopes;
+import com.spotify.heroic.common.Groups;
 import com.spotify.heroic.concurrrency.ReadWriteThreadPools;
 import com.spotify.heroic.metric.MetricBackend;
 import com.spotify.heroic.metric.MetricModule;
 import com.spotify.heroic.statistics.LocalMetricManagerReporter;
 import com.spotify.heroic.statistics.MetricBackendReporter;
-import com.spotify.heroic.utils.GroupedUtils;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.Managed;
+import lombok.Data;
 
 @Data
 public final class DatastaxMetricModule implements MetricModule {
@@ -58,7 +58,7 @@ public final class DatastaxMetricModule implements MetricModule {
     public static final int DEFAULT_PORT = 9042;
 
     private final String id;
-    private final Set<String> groups;
+    private final Groups groups;
     private final String keyspace;
     private final List<InetSocketAddress> seeds;
     private final ReadWriteThreadPools.Config pools;
@@ -68,7 +68,7 @@ public final class DatastaxMetricModule implements MetricModule {
             @JsonProperty("keyspace") String keyspace, @JsonProperty("group") String group,
             @JsonProperty("groups") Set<String> groups, @JsonProperty("pools") ReadWriteThreadPools.Config pools) {
         this.id = id;
-        this.groups = GroupedUtils.groups(group, groups, DEFAULT_GROUP);
+        this.groups = Groups.groups(group, groups, DEFAULT_GROUP);
         this.keyspace = Optional.fromNullable(keyspace).or(DEFAULT_KEYSPACE);
         this.seeds = convert(Optional.fromNullable(seeds).or(DEFAULT_SEEDS));
         this.pools = Optional.fromNullable(pools).or(ReadWriteThreadPools.Config.provideDefault());
@@ -122,8 +122,7 @@ public final class DatastaxMetricModule implements MetricModule {
 
             @Provides
             @Singleton
-            @Named("groups")
-            public Set<String> groups() {
+            public Groups groups() {
                 return groups;
             }
 
@@ -135,7 +134,7 @@ public final class DatastaxMetricModule implements MetricModule {
 
             @Override
             protected void configure() {
-                bind(key).toInstance(new DatastaxBackend(groups));
+                bind(key).to(DatastaxBackend.class).in(Scopes.SINGLETON);
                 expose(key);
             }
         };

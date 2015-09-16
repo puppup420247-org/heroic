@@ -21,17 +21,18 @@
 
 package com.spotify.heroic.rpc.httprpc;
 
-import lombok.RequiredArgsConstructor;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.google.inject.Key;
 import com.google.inject.Module;
 import com.google.inject.PrivateModule;
 import com.google.inject.Scopes;
+import com.spotify.heroic.HeroicOptions;
 import com.spotify.heroic.cluster.RpcProtocol;
 import com.spotify.heroic.cluster.RpcProtocolModule;
 
-@RequiredArgsConstructor
+import lombok.Data;
+
+@Data
 public class HttpRpcProtocolModule implements RpcProtocolModule {
     @JsonCreator
     public static HttpRpcProtocolModule create() {
@@ -43,7 +44,7 @@ public class HttpRpcProtocolModule implements RpcProtocolModule {
     }
 
     @Override
-    public Module module(final Key<RpcProtocol> key) {
+    public Module module(final Key<RpcProtocol> key, final HeroicOptions options) {
         return new PrivateModule() {
             @Override
             protected void configure() {

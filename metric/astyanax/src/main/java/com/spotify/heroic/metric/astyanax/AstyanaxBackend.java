@@ -27,13 +27,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
-
-import javax.inject.Inject;
-
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
 
 import org.apache.commons.lang3.NotImplementedException;
 
@@ -52,19 +46,22 @@ import com.netflix.astyanax.serializers.DoubleSerializer;
 import com.netflix.astyanax.serializers.IntegerSerializer;
 import com.netflix.astyanax.serializers.StringSerializer;
 import com.netflix.astyanax.util.RangeBuilder;
+import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.common.Groups;
+import com.spotify.heroic.common.LifeCycle;
+import com.spotify.heroic.common.Series;
 import com.spotify.heroic.concurrrency.ReadWriteThreadPools;
-import com.spotify.heroic.injection.LifeCycle;
+import com.spotify.heroic.metric.AbstractMetricBackend;
+import com.spotify.heroic.metric.BackendEntry;
+import com.spotify.heroic.metric.BackendKey;
+import com.spotify.heroic.metric.FetchData;
 import com.spotify.heroic.metric.FetchQuotaWatcher;
-import com.spotify.heroic.metric.MetricBackend;
-import com.spotify.heroic.metric.model.BackendEntry;
-import com.spotify.heroic.metric.model.BackendKey;
-import com.spotify.heroic.metric.model.FetchData;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.metric.model.WriteResult;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.DateRange;
-import com.spotify.heroic.model.Series;
-import com.spotify.heroic.model.TimeData;
+import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.MetricTypedGroup;
+import com.spotify.heroic.metric.Point;
+import com.spotify.heroic.metric.WriteMetric;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.MetricBackendReporter;
 
 import eu.toolchain.async.AsyncFramework;
@@ -72,28 +69,32 @@ import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.Borrowed;
 import eu.toolchain.async.LazyTransform;
 import eu.toolchain.async.Managed;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 /**
  * MetricBackend for Heroic cassandra datastore.
  */
-@RequiredArgsConstructor
 @ToString(of = {})
-public class AstyanaxBackend implements MetricBackend, LifeCycle {
+public class AstyanaxBackend extends AbstractMetricBackend implements LifeCycle {
     private static final MetricsRowKeySerializer KEY_SERIALIZER = MetricsRowKeySerializer.get();
 
     private static final ColumnFamily<MetricsRowKey, Integer> METRICS_CF = new ColumnFamily<MetricsRowKey, Integer>(
             "metrics", KEY_SERIALIZER, IntegerSerializer.get());
 
-    @Inject
-    private AsyncFramework async;
+    private final AsyncFramework async;
+    private final ReadWriteThreadPools pools;
+    private final MetricBackendReporter reporter;
+    private final Groups groups;
 
-    @Inject
-    private ReadWriteThreadPools pools;
-
-    @Inject
-    private MetricBackendReporter reporter;
-
-    private final Set<String> groups;
+    public AstyanaxBackend(final AsyncFramework async, final ReadWriteThreadPools pools,
+            final MetricBackendReporter reporter, final Groups groups) {
+        super(async);
+        this.async = async;
+        this.pools = pools;
+        this.reporter = reporter;
+        this.groups = groups;
+    }
 
     private static final ColumnFamily<Integer, String> CQL3_CF = ColumnFamily.newColumnFamily("Cql3CF",
             IntegerSerializer.get(), StringSerializer.get());
@@ -103,8 +104,13 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
     private Managed<Context> context;
 
     @Override
-    public Set<String> getGroups() {
+    public Groups getGroups() {
         return groups;
+    }
+
+    @Override
+    public AsyncFuture<Void> configure() {
+        return async.resolved();
     }
 
     @Override
@@ -127,25 +133,30 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
                 final Map<MetricsRowKey, ColumnListMutation<Integer>> batches = new HashMap<MetricsRowKey, ColumnListMutation<Integer>>();
 
                 for (final WriteMetric write : writes) {
-                    for (final DataPoint d : write.getData()) {
-                        final long base = MetricsRowKeySerializer.getBaseTimestamp(d.getTimestamp());
-                        final MetricsRowKey rowKey = new MetricsRowKey(write.getSeries(), base);
+                    for (final MetricTypedGroup g : write.getGroups()) {
+                        if (g.getType() != MetricType.POINT)
+                            continue;
 
-                        ColumnListMutation<Integer> m = batches.get(rowKey);
+                        for (final Metric t : g.getData()) {
+                            final Point d = (Point) t;
+                            final long base = MetricsRowKeySerializer.getBaseTimestamp(d.getTimestamp());
+                            final MetricsRowKey rowKey = new MetricsRowKey(write.getSeries(), base);
 
-                        if (m == null) {
-                            m = mutation.withRow(METRICS_CF, rowKey);
-                            batches.put(rowKey, m);
+                            ColumnListMutation<Integer> m = batches.get(rowKey);
+
+                            if (m == null) {
+                                m = mutation.withRow(METRICS_CF, rowKey);
+                                batches.put(rowKey, m);
+                            }
+
+                            m.putColumn(MetricsRowKeySerializer.calculateColumnKey(d.getTimestamp()), d.getValue());
                         }
-
-                        m.putColumn(MetricsRowKeySerializer.calculateColumnKey(d.getTimestamp()), d.getValue());
                     }
                 }
 
                 final long start = System.nanoTime();
                 mutation.execute();
-                final long diff = System.nanoTime() - start;
-                return WriteResult.of(diff);
+                return WriteResult.of(ImmutableList.of(System.nanoTime() - start));
             }
         };
 
@@ -164,7 +175,7 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
      * @throws MetricBackendException If backend is not ready
      */
     @SuppressWarnings("unused")
-    private AsyncFuture<Integer> writeCQL(final MetricsRowKey rowKey, final List<DataPoint> datapoints) {
+    private AsyncFuture<Integer> writeCQL(final MetricsRowKey rowKey, final List<Point> datapoints) {
         final Borrowed<Context> k = context.borrow();
 
         return async.call(new Callable<Integer>() {
@@ -172,7 +183,7 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
             public Integer call() throws Exception {
                 final Context ctx = k.get();
 
-                for (final DataPoint d : datapoints) {
+                for (final Point d : datapoints) {
                     ctx.client
                             .prepareQuery(CQL3_CF)
                             .withCql(INSERT_METRICS_CQL)
@@ -190,49 +201,51 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
 
     @SuppressWarnings("unchecked")
     @Override
-    public <T extends TimeData> AsyncFuture<FetchData<T>> fetch(Class<T> source, Series series, final DateRange range,
+    public AsyncFuture<FetchData> fetch(MetricType source, Series series, final DateRange range,
             FetchQuotaWatcher watcher) {
-        if (source == DataPoint.class) {
-            final AsyncFuture<? extends FetchData<? extends TimeData>> f = fetchDataPoints(series, range, watcher);
-            return (AsyncFuture<FetchData<T>>) f;
+        if (source == MetricType.POINT) {
+            return fetchDataPoints(series, range, watcher);
         }
 
-        throw new NotImplementedException("unsupported source: " + source.getName());
+        throw new NotImplementedException("unsupported source: " + source);
     }
 
-    private AsyncFuture<FetchData<DataPoint>> fetchDataPoints(final Series series, DateRange range,
+    private AsyncFuture<FetchData> fetchDataPoints(final Series series, DateRange range,
             final FetchQuotaWatcher watcher) {
         final List<PreparedQuery> queries = prepareQueries(series, range);
 
         final Borrowed<Context> k = context.borrow();
 
-        return async.resolved(queries).transform(new LazyTransform<List<PreparedQuery>, FetchData<DataPoint>>() {
+        return async.resolved(queries).lazyTransform(new LazyTransform<List<PreparedQuery>, FetchData>() {
             @Override
-            public AsyncFuture<FetchData<DataPoint>> transform(List<PreparedQuery> result) throws Exception {
-                final List<AsyncFuture<FetchData<DataPoint>>> queries = new ArrayList<>();
+            public AsyncFuture<FetchData> transform(List<PreparedQuery> result) throws Exception {
+                final List<AsyncFuture<FetchData>> queries = new ArrayList<>();
 
                 for (final PreparedQuery q : result) {
                     final Context ctx = k.get();
 
-                    queries.add(async.call(new Callable<FetchData<DataPoint>>() {
+                    queries.add(async.call(new Callable<FetchData>() {
                         @Override
-                        public FetchData<DataPoint> call() throws Exception {
+                        public FetchData call() throws Exception {
                             final long start = System.nanoTime();
 
                             final RowQuery<MetricsRowKey, Integer> query = ctx.client.prepareQuery(METRICS_CF)
                                     .getRow(q.rowKey).autoPaginate(true).withColumnRange(q.columnRange);
 
-                            final List<DataPoint> data = q.rowKey.buildDataPoints(query.execute().getResult());
+                            final List<Metric> data = q.rowKey.buildDataPoints(query.execute().getResult());
 
                             if (!watcher.readData(data.size()))
                                 throw new IllegalArgumentException("data limit quota violated");
 
-                            return new FetchData<DataPoint>(series, data, ImmutableList.of(System.nanoTime() - start));
+                            final List<Long> times = ImmutableList.of(System.nanoTime() - start);
+                            final List<MetricTypedGroup> groups = ImmutableList.of(new MetricTypedGroup(MetricType.POINT,
+                                    data));
+                            return new FetchData(series, times, groups);
                         }
-                    }, pools.read()).onAny(reporter.reportFetch()));
+                    }, pools.read()).on(reporter.reportFetch()));
                 }
 
-                return async.collect(queries, FetchData.<DataPoint> merger(series));
+                return async.collect(queries, FetchData.<Point> merger(series));
             }
         }).on(k.releasing());
     }
@@ -298,9 +311,9 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
                         final MetricsRowKey rowKey = entry.getKey();
                         final Series series = rowKey.getSeries();
 
-                        final List<DataPoint> dataPoints = rowKey.buildDataPoints(entry.getColumns());
+                        final List<Metric> dataPoints = rowKey.buildDataPoints(entry.getColumns());
 
-                        return new BackendEntry(series, dataPoints);
+                        return new BackendEntry(series, MetricType.POINT, dataPoints);
                     }
 
                     @Override
@@ -350,12 +363,12 @@ public class AstyanaxBackend implements MetricBackend, LifeCycle {
     }
 
     @Override
-    public AsyncFuture<Void> start() throws Exception {
+    public AsyncFuture<Void> start() {
         return context.start();
     }
 
     @Override
-    public AsyncFuture<Void> stop() throws Exception {
+    public AsyncFuture<Void> stop() {
         final List<AsyncFuture<Void>> futures = new ArrayList<>();
         futures.add(context.stop());
         futures.add(pools.stop());

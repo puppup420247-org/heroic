@@ -2,26 +2,26 @@ package com.spotify.heroic.ingestion;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyCollection;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
-import java.util.Collection;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Matchers;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 
-import com.spotify.heroic.exceptions.BackendGroupException;
+import com.spotify.heroic.common.BackendGroupException;
 import com.spotify.heroic.metadata.MetadataBackend;
 import com.spotify.heroic.metadata.MetadataManager;
 import com.spotify.heroic.metric.MetricBackendGroup;
 import com.spotify.heroic.metric.MetricManager;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.metric.model.WriteResult;
+import com.spotify.heroic.metric.WriteMetric;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.IngestionManagerReporter;
 import com.spotify.heroic.suggest.SuggestBackend;
 import com.spotify.heroic.suggest.SuggestManager;
@@ -110,13 +110,13 @@ public class IngestionManagerTest {
 
         doReturn(future).when(manager).doMetricWrite(write, metric);
         doReturn(future).when(manager).doMetadataWrite(write, metadata, suggest);
-        doReturn(future).when(async).collect(any(Collection.class), any(Collector.class));
+        doReturn(future).when(async).collect(anyCollection(), Matchers.<Collector> any(Collector.class));
 
         assertEquals(future, manager.doWrite(group, write));
 
         verify(manager).doMetricWrite(write, metric);
         verify(manager).doMetadataWrite(write, metadata, suggest);
-        verify(async).collect(any(Collection.class), any(Collector.class));
+        verify(async).collect(anyCollection(), Matchers.<Collector> any(Collector.class));
     }
 
     @SuppressWarnings("unchecked")
@@ -126,12 +126,12 @@ public class IngestionManagerTest {
 
         doReturn(future).when(manager).doMetricWrite(write, metric);
         doReturn(future).when(manager).doMetadataWrite(write, metadata, suggest);
-        doReturn(future).when(async).collect(any(Collection.class), any(Collector.class));
+        doReturn(future).when(async).collect(anyCollection(), Matchers.<Collector>any(Collector.class));
 
         assertEquals(future, manager.doWrite(group, write));
 
         verify(manager, never()).doMetricWrite(write, metric);
         verify(manager, never()).doMetadataWrite(write, metadata, suggest);
-        verify(async).collect(any(Collection.class), any(Collector.class));
+        verify(async).collect(anyCollection(), Matchers.<Collector> any(Collector.class));
     }
 }

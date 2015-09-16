@@ -31,7 +31,7 @@ import org.elasticsearch.client.Client;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
-import com.spotify.heroic.model.DateRange;
+import com.spotify.heroic.common.DateRange;
 
 @ToString
 public class SingleIndexMapping implements IndexMapping {
@@ -52,7 +52,7 @@ public class SingleIndexMapping implements IndexMapping {
 
     @Override
     public String template() {
-        return "*";
+        return index;
     }
 
     @Override
@@ -78,5 +78,22 @@ public class SingleIndexMapping implements IndexMapping {
     @Override
     public DeleteByQueryRequestBuilder deleteByQuery(final Client client, DateRange range, final String type) {
         return client.prepareDeleteByQuery(index).setTypes(type);
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private String index;
+
+        public Builder index(String index) {
+            this.index = index;
+            return this;
+        }
+
+        public SingleIndexMapping build() {
+            return new SingleIndexMapping(index);
+        }
     }
 }

@@ -28,6 +28,8 @@ import java.util.Set;
 import javax.inject.Named;
 import javax.inject.Singleton;
 
+import lombok.Data;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
@@ -39,11 +41,12 @@ import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Names;
+import com.spotify.heroic.common.BackendGroups;
 import com.spotify.heroic.statistics.ClusteredMetadataManagerReporter;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
-import com.spotify.heroic.utils.BackendGroups;
 
+@Data
 public class MetadataManagerModule extends PrivateModule {
     private static final List<MetadataModule> DEFAULT_BACKENDS = ImmutableList.of();
 
@@ -90,9 +93,6 @@ public class MetadataManagerModule extends PrivateModule {
 
         bind(MetadataManager.class).to(LocalMetadataManager.class).in(Scopes.SINGLETON);
         expose(MetadataManager.class);
-
-        bind(ClusteredMetadataManager.class).in(Scopes.SINGLETON);
-        expose(ClusteredMetadataManager.class);
     }
 
     private void bindBackends(final Collection<MetadataModule> configs) {

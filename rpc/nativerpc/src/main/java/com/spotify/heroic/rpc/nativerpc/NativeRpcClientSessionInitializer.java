@@ -21,8 +21,19 @@
 
 package com.spotify.heroic.rpc.nativerpc;
 
+import java.net.InetSocketAddress;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.spotify.heroic.rpc.nativerpc.message.NativeRpcError;
+import com.spotify.heroic.rpc.nativerpc.message.NativeRpcHeartBeat;
+import com.spotify.heroic.rpc.nativerpc.message.NativeRpcResponse;
+
+import eu.toolchain.async.ResolvableFuture;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -31,20 +42,8 @@ import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.util.Timeout;
 import io.netty.util.Timer;
 import io.netty.util.TimerTask;
-
-import java.net.InetSocketAddress;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.spotify.heroic.rpc.nativerpc.message.NativeRpcError;
-import com.spotify.heroic.rpc.nativerpc.message.NativeRpcHeartBeat;
-import com.spotify.heroic.rpc.nativerpc.message.NativeRpcResponse;
-
-import eu.toolchain.async.ResolvableFuture;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -63,6 +62,14 @@ public class NativeRpcClientSessionInitializer<R> extends ChannelInitializer<Cha
     protected void initChannel(final Channel ch) throws Exception {
         final ChannelPipeline pipeline = ch.pipeline();
 
+        pipeline.addLast(new ChannelInboundHandlerAdapter() {
+            @Override
+            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                bumpTimeout(ctx);
+                ctx.fireChannelRead(msg);
+            }
+        });
+
         // first four bytes are length prefix of message, strip first four bytes.
         pipeline.addLast(new LengthFieldBasedFrameDecoder(maxFrameSize, 0, 4, 0, 4));
         pipeline.addLast(new NativeRpcDecoder());
@@ -71,17 +78,26 @@ public class NativeRpcClientSessionInitializer<R> extends ChannelInitializer<Cha
             protected void channelRead0(final ChannelHandlerContext ctx, final Object msg) throws Exception {
                 if (msg instanceof NativeRpcError) {
                     final NativeRpcError error = (NativeRpcError) msg;
+
+                    if (log.isTraceEnabled()) {
+                        log.trace("[{}] remote error: {}", ctx.channel(), error.getMessage());
+                    }
+
                     future.fail(new NativeRpcRemoteException(address, error.getMessage()));
                     ctx.channel().close();
                     return;
                 }
 
                 if (msg instanceof NativeRpcResponse) {
-                    log.info("received response, cancelling heartbeat");
+                    if (log.isTraceEnabled()) {
+                        log.trace("[{}] response: cancelling heartbeat", ctx.channel());
+                    }
+
                     final Timeout old = heartbeatTimeout.getAndSet(null);
 
-                    if (old != null)
+                    if (old != null) {
                         old.cancel();
+                    }
 
                     final NativeRpcResponse response = (NativeRpcResponse) msg;
                     final R responseBody = mapper.readValue(response.getBody(), expected);
@@ -90,10 +106,11 @@ public class NativeRpcClientSessionInitializer<R> extends ChannelInitializer<Cha
                 }
 
                 if (msg instanceof NativeRpcHeartBeat) {
-                    final Timeout timeout = timer.newTimeout(heartbeatTimeout(ctx.channel(), future),
-                            heartbeatInterval, TimeUnit.MILLISECONDS);
-                    final Timeout old = heartbeatTimeout.getAndSet(timeout);
-                    old.cancel();
+                    if (log.isTraceEnabled()) {
+                        log.trace("[{}] heartbeat: delaying timeout by {}ms", ctx.channel(), heartbeatInterval);
+                    }
+
+                    bumpTimeout(ctx);
                     return;
                 }
 
@@ -114,6 +131,17 @@ public class NativeRpcClientSessionInitializer<R> extends ChannelInitializer<Cha
 
         pipeline.addLast(new LengthFieldPrepender(4));
         pipeline.addLast(new NativeRpcEncoder());
+    }
+
+    private void bumpTimeout(final ChannelHandlerContext ctx) {
+        final Timeout timeout = timer.newTimeout(heartbeatTimeout(ctx.channel(), future), heartbeatInterval,
+                TimeUnit.MILLISECONDS);
+
+        final Timeout old = heartbeatTimeout.getAndSet(timeout);
+
+        if (old != null) {
+            old.cancel();
+        }
     }
 
     private TimerTask heartbeatTimeout(final Channel ch, final ResolvableFuture<?> future) {

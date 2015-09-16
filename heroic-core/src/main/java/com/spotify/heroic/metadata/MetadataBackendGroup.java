@@ -23,28 +23,21 @@ package com.spotify.heroic.metadata;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
 
 import com.google.common.collect.Iterables;
+import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.common.Groups;
+import com.spotify.heroic.common.RangeFilter;
+import com.spotify.heroic.common.SelectedGroup;
+import com.spotify.heroic.common.Series;
 import com.spotify.heroic.filter.Filter;
-import com.spotify.heroic.metadata.model.CountSeries;
-import com.spotify.heroic.metadata.model.DeleteSeries;
-import com.spotify.heroic.metadata.model.FindKeys;
-import com.spotify.heroic.metadata.model.FindSeries;
-import com.spotify.heroic.metadata.model.FindTags;
-import com.spotify.heroic.metadata.model.MetadataEntry;
-import com.spotify.heroic.metric.model.WriteResult;
-import com.spotify.heroic.model.DateRange;
-import com.spotify.heroic.model.RangeFilter;
-import com.spotify.heroic.model.Series;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
-import com.spotify.heroic.utils.SelectedGroup;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 @RequiredArgsConstructor
 @ToString(of = { "backends" })
@@ -52,6 +45,20 @@ public class MetadataBackendGroup implements MetadataBackend {
     private final SelectedGroup<MetadataBackend> backends;
     private final AsyncFramework async;
     private final LocalMetadataManagerReporter reporter;
+
+    @Override
+    public AsyncFuture<Void> configure() {
+        final List<AsyncFuture<Void>> callbacks = new ArrayList<>();
+
+        run(new InternalOperation() {
+            @Override
+            public void run(int disabled, MetadataBackend backend) throws Exception {
+                callbacks.add(backend.configure());
+            }
+        });
+
+        return async.collectAndDiscard(callbacks);
+    }
 
     @Override
     public AsyncFuture<FindTags> findTags(final RangeFilter filter) {
@@ -177,7 +184,7 @@ public class MetadataBackendGroup implements MetadataBackend {
     }
 
     @Override
-    public Set<String> getGroups() {
+    public Groups getGroups() {
         return backends.groups();
     }
 

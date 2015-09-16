@@ -23,16 +23,19 @@ package com.spotify.heroic.aggregation;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 import javax.inject.Inject;
 import javax.inject.Named;
 
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.spotify.heroic.HeroicContext;
 import com.spotify.heroic.HeroicModule;
 import com.spotify.heroic.grammar.AggregationValue;
-import com.spotify.heroic.grammar.ListValue;
 import com.spotify.heroic.grammar.Value;
 
 import eu.toolchain.serializer.SerialReader;
@@ -58,6 +61,23 @@ public class Entry implements HeroicModule {
     public void setup() {
         final Serializer<List<String>> list = s.list(s.string());
         final Serializer<List<Aggregation>> aggregations = s.list(aggregation);
+
+        ctx.aggregation(EmptyAggregation.NAME, EmptyAggregation.class, EmptyAggregationQuery.class,
+                new Serializer<EmptyAggregation>() {
+                    @Override
+                    public void serialize(SerialWriter buffer, EmptyAggregation value) throws IOException {
+                    }
+
+                    @Override
+                    public EmptyAggregation deserialize(SerialReader buffer) throws IOException {
+                        return EmptyAggregation.INSTANCE;
+                    }
+                }, new AggregationBuilder<EmptyAggregation>() {
+                    @Override
+                    public EmptyAggregation build(AggregationContext context, List<Value> args, Map<String, Value> keywords) {
+                        return EmptyAggregation.INSTANCE;
+                    }
+                });
 
         ctx.aggregation(GroupAggregation.NAME, GroupAggregation.class, GroupAggregationQuery.class,
                 new GroupingAggregationSerializer<GroupAggregation>(list, aggregation) {
@@ -97,31 +117,71 @@ public class Entry implements HeroicModule {
                         final List<Aggregation> chain = aggregations.deserialize(buffer);
                         return new ChainAggregation(chain);
                     }
-                }, new AggregationBuilder<ChainAggregation>() {
+                }, new AbstractAggregationBuilder<ChainAggregation>(factory) {
                     @Override
-                    public ChainAggregation build(List<Value> args, Map<String, Value> keywords) {
+                    public ChainAggregation build(AggregationContext context, List<Value> args, Map<String, Value> keywords) {
                         final List<Aggregation> aggregations = new ArrayList<>();
 
                         for (final Value v : args) {
-                            aggregations.addAll(flatten(v));
+                            aggregations.addAll(flatten(context, v));
                         }
 
                         return new ChainAggregation(aggregations);
                     }
+                });
 
-                    private List<Aggregation> flatten(Value v) {
-                        final List<Aggregation> aggregations = new ArrayList<>();
+        ctx.aggregation(PartitionAggregation.NAME, PartitionAggregation.class, PartitionAggregationQuery.class,
+                new Serializer<PartitionAggregation>() {
+                    @Override
+                    public void serialize(SerialWriter buffer, PartitionAggregation value) throws IOException {
+                        aggregations.serialize(buffer, value.getChildren());
+                    }
 
-                        if (v instanceof ListValue) {
-                            for (final Value item : ((ListValue) v).getList()) {
-                                aggregations.addAll(flatten(item));
-                            }
-                        } else {
-                            final AggregationValue a = v.cast(AggregationValue.class);
-                            aggregations.add(factory.build(a.getName(), a.getArguments(), a.getKeywordArguments()));
+                    @Override
+                    public PartitionAggregation deserialize(SerialReader buffer) throws IOException {
+                        final List<Aggregation> children = aggregations.deserialize(buffer);
+                        return new PartitionAggregation(children);
+                    }
+                }, new AbstractAggregationBuilder<PartitionAggregation>(factory) {
+                    @Override
+                    public PartitionAggregation build(AggregationContext context, List<Value> args, Map<String, Value> keywords) {
+                        final ImmutableList.Builder<Aggregation> aggregations = ImmutableList.builder();
+
+                        for (final Value v : args) {
+                            aggregations.addAll(flatten(context, v));
                         }
 
-                        return aggregations;
+                        return new PartitionAggregation(aggregations.build());
+                    }
+                });
+
+
+        ctx.aggregation("opts", Aggregation.class, OptionsAggregationQuery.class,
+                aggregation, new AbstractAggregationBuilder<Aggregation>(factory) {
+                    @Override
+                    public Aggregation build(AggregationContext context, List<Value> args, Map<String, Value> keywords) {
+                        final Deque<Value> a = new LinkedList<>(args);
+                        final Optional<Long> size = parseDiffMillis(a, keywords, "size");
+                        final Optional<Long> extent = parseDiffMillis(a, keywords, "extent");
+                        final OptionsContext c = new OptionsContext(context, size, extent);
+                        return extracted(keywords, a, c);
+                    }
+
+                    private Aggregation extracted(Map<String, Value> keywords, final Deque<Value> a,
+                            final OptionsContext c) {
+                        final AggregationValue aggregation;
+
+                        if (!a.isEmpty()) {
+                            aggregation = a.removeFirst().cast(AggregationValue.class);
+                        } else {
+                            if (!keywords.containsKey("aggregation")) {
+                                throw new IllegalArgumentException("Missing aggregation argument");
+                            }
+
+                            aggregation = keywords.get("aggregation").cast(AggregationValue.class);
+                        }
+
+                        return factory.build(c, aggregation.getName(), aggregation.getArguments(), aggregation.getKeywordArguments());
                     }
                 });
     }

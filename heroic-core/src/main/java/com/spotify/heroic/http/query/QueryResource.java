@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -40,47 +41,35 @@ import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.MediaType;
 
-import lombok.Data;
-
+import com.google.common.base.Stopwatch;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.inject.Inject;
-import com.spotify.heroic.cluster.ClusterManager;
-import com.spotify.heroic.cluster.model.NodeCapability;
-import com.spotify.heroic.cluster.model.NodeRegistryEntry;
-import com.spotify.heroic.metric.ClusteredMetricManager;
-import com.spotify.heroic.metric.MetricQuery;
-import com.spotify.heroic.metric.MetricQueryBuilder;
-import com.spotify.heroic.metric.MetricResult;
-import com.spotify.heroic.metric.model.ShardedResultGroups;
-import com.spotify.heroic.utils.HttpAsyncUtils;
+import com.spotify.heroic.Query;
+import com.spotify.heroic.QueryBuilder;
+import com.spotify.heroic.QueryManager;
+import com.spotify.heroic.cluster.NodeMetadata;
+import com.spotify.heroic.common.JavaxRestFramework;
+import com.spotify.heroic.common.Statistics;
+import com.spotify.heroic.metric.QueryResult;
+import com.spotify.heroic.metric.ShardTrace;
 
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.FutureDone;
+import lombok.Data;
 
 @Path("/query")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class QueryResource {
-    private static final class MetricsResumer implements HttpAsyncUtils.Resume<MetricResult, QueryMetricsResponse> {
-        @Override
-        public QueryMetricsResponse resume(MetricResult result) throws Exception {
-            final ShardedResultGroups groups = result.getMetricGroups();
-            return new QueryMetricsResponse(result.getQueryRange(), groups.getGroups(), groups.getStatistics(),
-                    groups.getErrors(), groups.getLatencies());
-        }
-    };
-
-    private static final MetricsResumer METRICS = new MetricsResumer();
+    @Inject
+    private JavaxRestFramework httpAsync;
 
     @Inject
-    private HttpAsyncUtils httpAsync;
+    private QueryManager query;
 
     @Inject
-    private ClusteredMetricManager metrics;
-
-    @Inject
-    private ClusterManager cluster;
+    private NodeMetadata localMetadata;
 
     private final Cache<UUID, StreamQuery> streamQueries = CacheBuilder.newBuilder()
             .expireAfterWrite(10, TimeUnit.MINUTES).<UUID, StreamQuery> build();
@@ -88,15 +77,15 @@ public class QueryResource {
     @POST
     @Path("/metrics/stream")
     public List<StreamId> metricsStream(@QueryParam("backend") String backendGroup, QueryMetrics query) {
-        final MetricQuery request = setupBuilder(backendGroup, query).build();
+        final Query request = setupBuilder(query).build();
 
-        final Collection<NodeRegistryEntry> nodes = cluster.findAllShards(NodeCapability.QUERY);
+        final Collection<? extends QueryManager.Group> groups = this.query.useGroupPerNode(backendGroup);
         final List<StreamId> ids = new ArrayList<>();
 
-        for (NodeRegistryEntry node : nodes) {
+        for (QueryManager.Group group : groups) {
             final UUID id = UUID.randomUUID();
-            streamQueries.put(id, new StreamQuery(node, request));
-            ids.add(new StreamId(node.getMetadata().getTags(), id));
+            streamQueries.put(id, new StreamQuery(group, request));
+            ids.add(new StreamId(group.first().node().metadata().getTags(), id));
         }
 
         return ids;
@@ -105,15 +94,19 @@ public class QueryResource {
     @POST
     @Path("/metrics/stream/{id}")
     public void metricsStreamId(@Suspended final AsyncResponse response, @PathParam("id") final UUID id) {
-        if (id == null)
+        if (id == null) {
             throw new BadRequestException("Id must be a valid UUID");
+        }
 
-        final StreamQuery query = streamQueries.getIfPresent(id);
+        final StreamQuery streamQuery = streamQueries.getIfPresent(id);
 
-        if (query == null)
+        if (streamQuery == null) {
             throw new NotFoundException("Stream query not found with id: " + id);
+        }
 
-        final AsyncFuture<MetricResult> callback = metrics.queryOnNode(query.getRequest(), query.getNode());
+        final Query q = streamQuery.getQuery();
+        final QueryManager.Group group = streamQuery.getGroup();
+        final AsyncFuture<QueryResult> callback = group.query(q);
 
         callback.on(new FutureDone<Object>() {
             @Override
@@ -131,29 +124,37 @@ public class QueryResource {
             }
         });
 
-        response.setTimeout(300, TimeUnit.SECONDS);
-        httpAsync.handleAsyncResume(response, callback, METRICS);
+        bindMetricsResponse(response, callback);
     }
 
     @POST
     @Path("/metrics")
     public void metrics(@Suspended final AsyncResponse response, @QueryParam("backend") String backendGroup,
             QueryMetrics query) {
-        final MetricQuery request = setupBuilder(backendGroup, query).build();
+        final Query q = setupBuilder(query).build();
 
-        final AsyncFuture<MetricResult> callback = metrics.query(request);
+        final QueryManager.Group group = this.query.useGroup(backendGroup);
+        final AsyncFuture<QueryResult> callback = group.query(q);
 
-        response.setTimeout(300, TimeUnit.SECONDS);
-
-        httpAsync.handleAsyncResume(response, callback, METRICS);
+        bindMetricsResponse(response, callback);
     }
 
-    @SuppressWarnings("deprecation")
-    private MetricQueryBuilder setupBuilder(String backendGroup, QueryMetrics query) {
-        return metrics.newRequest().key(query.getKey()).tags(query.getTags()).groupBy(query.getGroupBy())
-                .backendGroup(backendGroup).queryString(query.getQuery()).filter(query.getFilter())
+    private void bindMetricsResponse(final AsyncResponse response, final AsyncFuture<QueryResult> callback) {
+        response.setTimeout(300, TimeUnit.SECONDS);
+
+        final Stopwatch watch = Stopwatch.createStarted();
+
+        httpAsync.bind(response, callback,
+                (r) -> new QueryMetricsResponse(r.getRange(), r.getGroups(), r.getErrors(),
+                        new ShardTrace("api", localMetadata, watch.elapsed(TimeUnit.MILLISECONDS), Statistics.EMPTY,
+                                Optional.empty(), r.getTraces())));
+    }
+
+    private QueryBuilder setupBuilder(QueryMetrics query) {
+        return this.query.newQuery().key(query.getKey()).tags(query.getTags()).groupBy(query.getGroupBy())
+                .queryString(query.getQuery()).filter(query.getFilter())
                 .range(query.getRange().buildDateRange()).disableCache(query.isNoCache())
-                .aggregation(query.makeAggregation()).source(query.getSource());
+                .aggregationQuery(query.getAggregators()).source(query.getSource());
     }
 
     @Data
@@ -164,7 +165,7 @@ public class QueryResource {
 
     @Data
     private static final class StreamQuery {
-        private final NodeRegistryEntry node;
-        private final MetricQuery request;
+        private final QueryManager.Group group;
+        private final Query query;
     }
 }

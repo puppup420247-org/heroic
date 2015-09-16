@@ -28,9 +28,7 @@ import java.util.Map;
 
 import lombok.Data;
 
-import com.spotify.heroic.cluster.model.NodeCapability;
-import com.spotify.heroic.cluster.model.NodeRegistryEntry;
-import com.spotify.heroic.injection.LifeCycle;
+import com.spotify.heroic.common.LifeCycle;
 
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.Collector;
@@ -59,28 +57,16 @@ public interface ClusterManager extends LifeCycle {
 
     public List<NodeRegistryEntry> getNodes();
 
-    public NodeRegistryEntry findNode(final Map<String, String> tags, NodeCapability capability);
-
-    public Collection<NodeRegistryEntry> findAllShards(NodeCapability capability);
-
     public AsyncFuture<Void> refresh();
 
     public Statistics getStatistics();
 
+    public ClusterNodeGroup useDefaultGroup();
+
+    public ClusterNodeGroup useGroup(String group);
+
     /**
-     * TODO Remove short path for v4 when all of the cluster is v5.
-     *
-     * @param capability
-     * @param reducer
-     * @param op
-     * @return
+     * Future that will be resolved, after the cluster manager has been fully initialized.
      */
-    public <T> AsyncFuture<T> run(NodeCapability capability, Collector<T, T> reducer, ClusterOperation<T> op);
-
-    public <T> AsyncFuture<T> run(Map<String, String> tags, NodeCapability capability, Collector<T, T> reducer,
-            ClusterOperation<T> op);
-
-    public static interface ClusterOperation<T> {
-        public AsyncFuture<T> run(NodeRegistryEntry node);
-    }
+    public AsyncFuture<Void> initialized();
 }

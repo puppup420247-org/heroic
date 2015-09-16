@@ -33,14 +33,18 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import com.spotify.heroic.common.Series;
 import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.consumer.ConsumerSchema;
-import com.spotify.heroic.exceptions.ConsumerSchemaException;
-import com.spotify.heroic.exceptions.ConsumerSchemaValidationException;
-import com.spotify.heroic.exceptions.FatalSchemaException;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Series;
+import com.spotify.heroic.consumer.ConsumerSchemaException;
+import com.spotify.heroic.consumer.ConsumerSchemaValidationException;
+import com.spotify.heroic.consumer.FatalSchemaException;
+import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.MetricTypedGroup;
+import com.spotify.heroic.metric.Point;
+import com.spotify.heroic.metric.WriteMetric;
 
 @ToString
 public class Spotify100 implements ConsumerSchema {
@@ -54,7 +58,7 @@ public class Spotify100 implements ConsumerSchema {
 
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class Metric {
+    public static class JsonMetric {
         private final String version;
         private final String key;
         private final String host;
@@ -63,19 +67,24 @@ public class Spotify100 implements ConsumerSchema {
         private final Double value;
 
         @JsonCreator
-        public static Metric create(@JsonProperty("version") String version, @JsonProperty("key") String key,
+        public JsonMetric(@JsonProperty("version") String version, @JsonProperty("key") String key,
                 @JsonProperty("host") String host, @JsonProperty("time") Long time,
                 @JsonProperty("attributes") Map<String, String> attributes, @JsonProperty("value") Double value) {
-            return new Metric(version, key, host, time, attributes, value);
+            this.version = version;
+            this.key = key;
+            this.host = host;
+            this.time = time;
+            this.attributes = attributes;
+            this.value = value;
         }
     }
 
     @Override
     public void consume(Consumer consumer, byte[] message) throws ConsumerSchemaException {
-        final Metric metric;
+        final JsonMetric metric;
 
         try {
-            metric = mapper.readValue(message, Metric.class);
+            metric = mapper.readValue(message, JsonMetric.class);
         } catch (final Exception e) {
             throw new ConsumerSchemaValidationException("Received invalid metric", e);
         }
@@ -97,10 +106,12 @@ public class Spotify100 implements ConsumerSchema {
         final Map<String, String> tags = new HashMap<String, String>(metric.getAttributes());
         tags.put(HOST, metric.getHost());
 
-        final Series series = new Series(metric.getKey(), tags);
-        final DataPoint datapoint = new DataPoint(metric.getTime(), metric.getValue());
-        final List<DataPoint> data = new ArrayList<DataPoint>();
-        data.add(datapoint);
+        final Series series = Series.of(metric.getKey(), tags);
+        final Point datapoint = new Point(metric.getTime(), metric.getValue());
+        final List<Metric> points = new ArrayList<>();
+        points.add(datapoint);
+
+        final List<MetricTypedGroup> data = ImmutableList.of(new MetricTypedGroup(MetricType.POINT, points));
 
         try {
             consumer.write(new WriteMetric(series, data)).get();

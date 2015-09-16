@@ -21,36 +21,40 @@
 
 package com.spotify.heroic.aggregation.simple;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.aggregation.BucketAggregation;
+import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.Point;
+
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.BucketAggregation;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Sampling;
-
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true, of = { "NAME" })
-public class MaxAggregation extends BucketAggregation<DataPoint, DataPoint, MaxBucket> {
+public class MaxAggregation extends BucketAggregation<StripedMaxBucket> {
     public static final String NAME = "max";
 
-    public MaxAggregation(Sampling sampling) {
-        super(sampling, DataPoint.class, DataPoint.class);
-    }
-
     @JsonCreator
-    public static MaxAggregation create(@JsonProperty("sampling") Sampling sampling) {
-        return new MaxAggregation(sampling);
+    public MaxAggregation(@JsonProperty("size") final long size, @JsonProperty("extent") final long extent) {
+        super(size, extent, ImmutableSet.of(MetricType.POINT, MetricType.SPREAD), MetricType.POINT);
     }
 
     @Override
-    protected MaxBucket buildBucket(long timestamp) {
-        return new MaxBucket(timestamp);
+    protected StripedMaxBucket buildBucket(long timestamp) {
+        return new StripedMaxBucket(timestamp);
     }
 
     @Override
-    protected DataPoint build(MaxBucket bucket) {
-        return new DataPoint(bucket.timestamp(), bucket.value());
+    protected Metric build(StripedMaxBucket bucket) {
+        final double value = bucket.value();
+
+        if (Double.isNaN(value)) {
+            return Metric.invalid();
+        }
+
+        return new Point(bucket.timestamp(), value);
     }
 }

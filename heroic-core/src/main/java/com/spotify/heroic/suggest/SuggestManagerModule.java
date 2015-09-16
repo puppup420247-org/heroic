@@ -29,6 +29,8 @@ import java.util.Set;
 import javax.inject.Named;
 import javax.inject.Singleton;
 
+import lombok.Data;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Optional;
@@ -39,11 +41,12 @@ import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Names;
+import com.spotify.heroic.common.BackendGroups;
 import com.spotify.heroic.statistics.ClusteredMetadataManagerReporter;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
-import com.spotify.heroic.utils.BackendGroups;
 
+@Data
 public class SuggestManagerModule extends PrivateModule {
     private static final List<SuggestModule> DEFAULT_BACKENDS = new ArrayList<>();
 
@@ -90,9 +93,6 @@ public class SuggestManagerModule extends PrivateModule {
 
         bind(SuggestManager.class).to(LocalSuggestManager.class).in(Scopes.SINGLETON);
         expose(SuggestManager.class);
-
-        bind(ClusteredSuggestManager.class).in(Scopes.SINGLETON);
-        expose(ClusteredSuggestManager.class);
     }
 
     private void bindBackends(final Collection<SuggestModule> configs) {
@@ -108,6 +108,29 @@ public class SuggestManagerModule extends PrivateModule {
             install(config.module(key, id));
 
             bindings.addBinding().to(key);
+        }
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private List<SuggestModule> backends;
+        private List<String> defaultBackends;
+
+        public Builder backends(List<SuggestModule> backends) {
+            this.backends = backends;
+            return this;
+        }
+
+        public Builder defaultBackends(List<String> defaultBackends) {
+            this.defaultBackends = defaultBackends;
+            return this;
+        }
+
+        public SuggestManagerModule build() {
+            return new SuggestManagerModule(backends, defaultBackends);
         }
     }
 }

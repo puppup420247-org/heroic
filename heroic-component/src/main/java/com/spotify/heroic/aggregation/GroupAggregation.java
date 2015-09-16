@@ -25,15 +25,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import lombok.EqualsAndHashCode;
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableMap;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
 @EqualsAndHashCode(of = { "NAME" }, callSuper = true)
+@Data
 public class GroupAggregation extends GroupingAggregation {
     public static final Map<String, String> ALL_GROUP = ImmutableMap.of();
     public static final String NAME = "group";
@@ -43,43 +43,31 @@ public class GroupAggregation extends GroupingAggregation {
         super(of, each);
     }
 
-    /**
-     * Generate a key for this specific group.
-     * 
-     * @param tags The tags of a specific group.
-     * @return
-     */
+    @Override
     protected Map<String, String> key(final Map<String, String> tags) {
         final List<String> of = getOf();
 
-        if (of == null)
+        if (of == null) {
             return tags;
+        }
 
         // group by 'everything'
-        if (of.isEmpty())
+        if (of.isEmpty()) {
             return ALL_GROUP;
+        }
 
         final Map<String, String> key = new HashMap<>();
 
-        for (final String o : of)
-            key.put(o, tags.get(o));
+        for (final String o : of) {
+            String value = tags.get(o);
+
+            if (value == null) {
+                continue;
+            }
+
+            key.put(o, value);
+        }
 
         return key;
-    }
-
-    @ToString
-    @RequiredArgsConstructor
-    private static class GroupTraverseState {
-        private int count = 0;
-        private final TraverseState state;
-        private final Map<KeyValue, Integer> values = new HashMap<>();
-    }
-
-    @ToString
-    @RequiredArgsConstructor
-    @EqualsAndHashCode
-    private static class KeyValue {
-        private final String key;
-        private final String value;
     }
 }

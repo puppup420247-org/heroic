@@ -22,22 +22,26 @@
 package com.spotify.heroic.metric;
 
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 
-import com.spotify.heroic.metric.model.BackendEntry;
-import com.spotify.heroic.metric.model.BackendKey;
-import com.spotify.heroic.metric.model.FetchData;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.metric.model.WriteResult;
-import com.spotify.heroic.model.DateRange;
-import com.spotify.heroic.model.Series;
-import com.spotify.heroic.model.TimeData;
-import com.spotify.heroic.utils.Grouped;
-import com.spotify.heroic.utils.Initializing;
+import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.common.Grouped;
+import com.spotify.heroic.common.Initializing;
+import com.spotify.heroic.common.Series;
 
 import eu.toolchain.async.AsyncFuture;
 
 public interface MetricBackend extends Initializing, Grouped {
+    /**
+     * Configure the metric backend.
+     *
+     * This will assert that all required tables exists and are configured correctly for the given backend.
+     *
+     * @return A future that will be resolved when the configuration is successfully completed.
+     */
+    public AsyncFuture<Void> configure();
+
     /**
      * Execute a single write.
      *
@@ -75,7 +79,7 @@ public interface MetricBackend extends Initializing, Grouped {
      *
      * @return A future containing the fetched data wrapped in a {@link FetchData} structure.
      */
-    public <T extends TimeData> AsyncFuture<FetchData<T>> fetch(Class<T> type, Series series, DateRange range,
+    public AsyncFuture<FetchData> fetch(MetricType type, Series series, DateRange range,
             FetchQuotaWatcher watcher);
 
     /**
@@ -101,4 +105,20 @@ public interface MetricBackend extends Initializing, Grouped {
      * @return A future containing a list of backend keys.
      */
     public AsyncFuture<List<BackendKey>> keys(BackendKey start, BackendKey end, int limit);
+
+    /**
+     * Iterate all backend keys.
+     */
+    public AsyncFuture<Iterator<BackendKey>> allKeys(BackendKey start, int limit);
+
+    /**
+     * Serialize the given key, and return the hex-representation.
+     * @return A list of all possible hex serialized keys.
+     */
+    public AsyncFuture<List<String>> serializeKeyToHex(BackendKey key);
+
+    /**
+     * Serialize the given key, and return the corresponding BackendKey.
+     */
+    public AsyncFuture<List<BackendKey>> deserializeKeyFromHex(String key);
 }

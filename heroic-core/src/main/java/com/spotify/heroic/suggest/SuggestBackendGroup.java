@@ -23,26 +23,19 @@ package com.spotify.heroic.suggest;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
-import lombok.Data;
-import lombok.ToString;
-
-import com.spotify.heroic.metric.model.WriteResult;
-import com.spotify.heroic.model.DateRange;
-import com.spotify.heroic.model.RangeFilter;
-import com.spotify.heroic.model.Series;
+import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.common.Groups;
+import com.spotify.heroic.common.RangeFilter;
+import com.spotify.heroic.common.SelectedGroup;
+import com.spotify.heroic.common.Series;
+import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
-import com.spotify.heroic.suggest.model.KeySuggest;
-import com.spotify.heroic.suggest.model.MatchOptions;
-import com.spotify.heroic.suggest.model.TagKeyCount;
-import com.spotify.heroic.suggest.model.TagSuggest;
-import com.spotify.heroic.suggest.model.TagValueSuggest;
-import com.spotify.heroic.suggest.model.TagValuesSuggest;
-import com.spotify.heroic.utils.SelectedGroup;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
+import lombok.Data;
+import lombok.ToString;
 
 @Data
 @ToString(of = { "backends" })
@@ -50,6 +43,20 @@ public class SuggestBackendGroup implements SuggestBackend {
     private final AsyncFramework async;
     private final SelectedGroup<SuggestBackend> backends;
     private final LocalMetadataManagerReporter reporter;
+
+    @Override
+    public AsyncFuture<Void> configure() {
+        final List<AsyncFuture<Void>> callbacks = new ArrayList<>();
+
+        run(new InternalOperation() {
+            @Override
+            public void run(int disabled, SuggestBackend backend) {
+                callbacks.add(backend.configure());
+            }
+        });
+
+        return async.collectAndDiscard(callbacks);
+    }
 
     @Override
     public AsyncFuture<TagValuesSuggest> tagValuesSuggest(final RangeFilter filter, final List<String> exclude,
@@ -63,7 +70,7 @@ public class SuggestBackendGroup implements SuggestBackend {
             }
         });
 
-        return async.collect(callbacks, TagValuesSuggest.reduce(filter.getLimit(), groupLimit)).onAny(
+        return async.collect(callbacks, TagValuesSuggest.reduce(filter.getLimit(), groupLimit)).on(
                 reporter.reportTagValuesSuggest());
     }
 
@@ -78,7 +85,7 @@ public class SuggestBackendGroup implements SuggestBackend {
             }
         });
 
-        return async.collect(callbacks, TagValueSuggest.reduce(filter.getLimit())).onAny(
+        return async.collect(callbacks, TagValueSuggest.reduce(filter.getLimit())).on(
                 reporter.reportTagValueSuggest());
     }
 
@@ -93,7 +100,7 @@ public class SuggestBackendGroup implements SuggestBackend {
             }
         });
 
-        return async.collect(callbacks, TagKeyCount.reduce(filter.getLimit())).onAny(reporter.reportTagKeySuggest());
+        return async.collect(callbacks, TagKeyCount.reduce(filter.getLimit())).on(reporter.reportTagKeySuggest());
     }
 
     @Override
@@ -108,7 +115,7 @@ public class SuggestBackendGroup implements SuggestBackend {
             }
         });
 
-        return async.collect(callbacks, TagSuggest.reduce(filter.getLimit())).onAny(reporter.reportTagSuggest());
+        return async.collect(callbacks, TagSuggest.reduce(filter.getLimit())).on(reporter.reportTagSuggest());
     }
 
     @Override
@@ -122,7 +129,7 @@ public class SuggestBackendGroup implements SuggestBackend {
             }
         });
 
-        return async.collect(callbacks, KeySuggest.reduce(filter.getLimit())).onAny(reporter.reportKeySuggest());
+        return async.collect(callbacks, KeySuggest.reduce(filter.getLimit())).on(reporter.reportKeySuggest());
     }
 
     @Override
@@ -151,7 +158,7 @@ public class SuggestBackendGroup implements SuggestBackend {
     }
 
     @Override
-    public Set<String> getGroups() {
+    public Groups getGroups() {
         return backends.groups();
     }
 

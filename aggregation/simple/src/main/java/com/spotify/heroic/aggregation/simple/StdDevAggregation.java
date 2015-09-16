@@ -21,36 +21,40 @@
 
 package com.spotify.heroic.aggregation.simple;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.aggregation.BucketAggregation;
+import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.Point;
+
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.BucketAggregation;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.Sampling;
-
 @ToString(callSuper = true)
 @EqualsAndHashCode(callSuper = true, of = { "NAME" })
-public class StdDevAggregation extends BucketAggregation<DataPoint, DataPoint, StdDevBucket> {
+public class StdDevAggregation extends BucketAggregation<StripedStdDevBucket> {
     public static final String NAME = "stddev";
 
-    public StdDevAggregation(Sampling sampling) {
-        super(sampling, DataPoint.class, DataPoint.class);
-    }
-
     @JsonCreator
-    public static StdDevAggregation create(@JsonProperty("sampling") Sampling sampling) {
-        return new StdDevAggregation(sampling);
+    public StdDevAggregation(@JsonProperty("size") final long size, @JsonProperty("extent") final long extent) {
+        super(size, extent, ImmutableSet.of(MetricType.POINT, MetricType.SPREAD), MetricType.POINT);
     }
 
     @Override
-    protected StdDevBucket buildBucket(long timestamp) {
-        return new StdDevBucket(timestamp);
+    protected StripedStdDevBucket buildBucket(long timestamp) {
+        return new StripedStdDevBucket(timestamp);
     }
 
     @Override
-    protected DataPoint build(StdDevBucket bucket) {
-        return new DataPoint(bucket.timestamp(), bucket.value());
+    protected Metric build(StripedStdDevBucket bucket) {
+        final double value = bucket.value();
+
+        if (Double.isNaN(value)) {
+            return Metric.invalid();
+        }
+
+        return new Point(bucket.timestamp(), value);
     }
 }

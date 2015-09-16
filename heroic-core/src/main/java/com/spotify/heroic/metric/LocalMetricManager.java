@@ -25,53 +25,50 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 import javax.inject.Inject;
 
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
-
 import org.apache.commons.lang3.NotImplementedException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
 import com.spotify.heroic.aggregation.Aggregation;
-import com.spotify.heroic.aggregation.GroupAggregation;
-import com.spotify.heroic.exceptions.BackendGroupException;
+import com.spotify.heroic.aggregation.AggregationData;
+import com.spotify.heroic.aggregation.AggregationResult;
+import com.spotify.heroic.aggregation.AggregationSession;
+import com.spotify.heroic.aggregation.AggregationState;
+import com.spotify.heroic.aggregation.AggregationTraversal;
+import com.spotify.heroic.common.BackendGroupException;
+import com.spotify.heroic.common.BackendGroups;
+import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.common.GroupMember;
+import com.spotify.heroic.common.Groups;
+import com.spotify.heroic.common.RangeFilter;
+import com.spotify.heroic.common.SelectedGroup;
+import com.spotify.heroic.common.Series;
+import com.spotify.heroic.common.Statistics;
 import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.metadata.FindSeries;
 import com.spotify.heroic.metadata.MetadataBackend;
 import com.spotify.heroic.metadata.MetadataManager;
-import com.spotify.heroic.metadata.model.FindSeries;
-import com.spotify.heroic.metric.async.AggregatedCallbackStream;
-import com.spotify.heroic.metric.async.SimpleCallbackStream;
-import com.spotify.heroic.metric.model.BackendEntry;
-import com.spotify.heroic.metric.model.BackendKey;
-import com.spotify.heroic.metric.model.FetchData;
-import com.spotify.heroic.metric.model.ResultGroups;
-import com.spotify.heroic.metric.model.TagValues;
-import com.spotify.heroic.metric.model.WriteMetric;
-import com.spotify.heroic.metric.model.WriteResult;
-import com.spotify.heroic.model.DateRange;
-import com.spotify.heroic.model.RangeFilter;
-import com.spotify.heroic.model.Sampling;
-import com.spotify.heroic.model.Series;
-import com.spotify.heroic.model.TimeData;
 import com.spotify.heroic.statistics.MetricBackendGroupReporter;
-import com.spotify.heroic.utils.BackendGroups;
-import com.spotify.heroic.utils.GroupMember;
-import com.spotify.heroic.utils.SelectedGroup;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.LazyTransform;
 import eu.toolchain.async.StreamCollector;
+import eu.toolchain.async.Transform;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @ToString(of = {})
@@ -102,23 +99,22 @@ public class LocalMetricManager implements MetricManager {
     private final int seriesLimit;
     private final long aggregationLimit;
     private final long dataLimit;
-    private final int groupFetchParallelism;
+    private final int fetchParallelism;
 
     /**
-     * @param groupLimit
-     *            The maximum amount of groups this manager will allow to be generated.
-     * @param groupLoadLimit
-     *            The maximum amount of series a single group may contain.
-     * @param seriesLimit
-     *            The maximum amount of series in total an entire query may use.
+     * @param groupLimit The maximum amount of groups this manager will allow to be generated.
+     * @param seriesLimit The maximum amount of series in total an entire query may use.
+     * @param aggregationLimit The maximum number of (estimated) data points a single aggregation may produce.
+     * @param dataLimit The maximum number of samples a single query is allowed to fetch.
+     * @param fetchParallelism How many fetches that are allowed to be performed in parallel.
      */
     public LocalMetricManager(final int groupLimit, final int seriesLimit, final long aggregationLimit,
-            final long dataLimit, final int groupFetchParallelism) {
+            final long dataLimit, final int fetchParallelism) {
         this.groupLimit = groupLimit;
         this.seriesLimit = seriesLimit;
         this.aggregationLimit = aggregationLimit;
         this.dataLimit = dataLimit;
-        this.groupFetchParallelism = groupFetchParallelism;
+        this.fetchParallelism = fetchParallelism;
     }
 
     @Inject
@@ -132,6 +128,16 @@ public class LocalMetricManager implements MetricManager {
 
     @Inject
     private MetricBackendGroupReporter reporter;
+
+    @Override
+    public List<MetricBackend> allMembers() {
+        return backends.allMembers();
+    }
+
+    @Override
+    public List<MetricBackend> use(String group) throws BackendGroupException {
+        return backends.use(group).getMembers();
+    }
 
     @Override
     public List<GroupMember<MetricBackend>> getBackends() {
@@ -159,85 +165,106 @@ public class LocalMetricManager implements MetricManager {
         private final MetadataBackend metadata;
 
         @Override
-        public Set<String> getGroups() {
+        public Groups getGroups() {
             return backends.groups();
         }
 
         @Override
-        public <T extends TimeData> AsyncFuture<ResultGroups> query(Class<T> source, final Filter filter,
-                final List<String> groupBy, final DateRange range, Aggregation aggregation, final boolean noCache) {
-            final Aggregation nested;
-
-            if (groupBy != null) {
-                nested = new GroupAggregation(groupBy, aggregation);
-            } else {
-                nested = aggregation;
-            }
-
+        public AsyncFuture<ResultGroups> query(MetricType source, final Filter filter, final DateRange range,
+                final Aggregation aggregation, final boolean noCache) {
+            // XXX: move compatibility hack to a higher level.
             final FetchQuotaWatcher watcher = new LimitedFetchQuotaWatcher(dataLimit);
-            final QueryOperation op = buildOperation(source, filter, range, noCache, nested, watcher);
 
             /* groupLoadLimit + 1, so that we return one too many results when more than groupLoadLimit series are
              * available. This will cause the query engine to reject the request because of too large group. */
             final RangeFilter rangeFilter = RangeFilter.filterFor(filter, range, seriesLimit + 1);
 
-            try {
-                return metadata.findSeries(rangeFilter).onAny(reporter.reportFindSeries())
-                        .transform(runQueries(op, nested, watcher)).onAny(reporter.reportQueryMetrics());
-            } catch (Exception e) {
-                return async.failed(e);
-            }
+            final LazyTransform<FindSeries, ResultGroups> transform = (final FindSeries result) -> {
+                /* if empty, there are not time series on this shard */
+                if (result.isEmpty()) {
+                    return async.resolved(ResultGroups.EMPTY);
+                }
+
+                if (result.getSize() >= seriesLimit) {
+                    throw new IllegalArgumentException("The total number of series fetched " + result.getSize()
+                            + " would exceed the allowed limit of " + seriesLimit);
+                }
+
+                final long estimate = aggregation.estimate(range);
+
+                if (estimate > aggregationLimit) {
+                    throw new IllegalArgumentException(String.format(
+                            "aggregation is estimated more points [%d/%d] than what is allowed", estimate,
+                            aggregationLimit));
+                }
+
+                final AggregationTraversal traversal = aggregation.session(states(result.getSeries()), range);
+
+                if (traversal.getStates().size() > groupLimit) {
+                    throw new IllegalArgumentException("The current query is too heavy! (More than " + groupLimit
+                            + " timeseries would be sent to your client).");
+                }
+
+                final AggregationSession session = traversal.getSession();
+
+                final List<Callable<AsyncFuture<FetchData>>> fetches = new ArrayList<>();
+
+                final DateRange modified = range.shiftStart(-aggregation.extent());
+
+                for (final AggregationState state : traversal.getStates()) {
+                    final Set<Series> series = state.getSeries();
+
+                    if (series.isEmpty()) {
+                        continue;
+                    }
+
+                    run((int disabled, MetricBackend backend) -> {
+                        for (final Series serie : series) {
+                            fetches.add(() -> {
+                                if (watcher.isQuotaViolated())
+                                    throw new IllegalStateException("quota limit violated");
+
+                                return backend.fetch(source, serie, modified, watcher);
+                            });
+                        }
+                    });
+                }
+
+                return async.eventuallyCollect(fetches, collectResultGroups(watcher, aggregation, session, source),
+                        fetchParallelism);
+            };
+
+            return metadata.findSeries(rangeFilter).on(reporter.reportFindSeries()).lazyTransform(transform)
+                    .on(reporter.reportQueryMetrics());
         }
 
         @Override
-        public <T extends TimeData> AsyncFuture<FetchData<T>> fetch(final Class<T> source, final Series series,
+        public AsyncFuture<FetchData> fetch(final MetricType source, final Series series,
                 final DateRange range, final FetchQuotaWatcher watcher) {
-            final List<AsyncFuture<FetchData<T>>> callbacks = new ArrayList<>();
+            final List<AsyncFuture<FetchData>> callbacks = new ArrayList<>();
 
-            run(new InternalOperation() {
-                @Override
-                public void run(int disabled, MetricBackend backend) throws Exception {
-                    callbacks.add(backend.fetch(source, series, range, watcher));
-                }
+            run((int disabled, MetricBackend backend) -> {
+                callbacks.add(backend.fetch(source, series, range, watcher));
             });
 
-            return async.collect(callbacks, FetchData.<T> merger(series));
+            return async.collect(callbacks, FetchData.merger(series));
         }
 
         @Override
-        public <T extends TimeData> AsyncFuture<FetchData<T>> fetch(final Class<T> source, final Series series,
+        public AsyncFuture<FetchData> fetch(final MetricType source, final Series series,
                 final DateRange range) {
             return fetch(source, series, range, NO_QUOTA_WATCHER);
-        }
-
-        private <T extends TimeData> AsyncFuture<ResultGroups> fetchAll(final Class<T> source,
-                final List<TagValues> group, final Filter filter, final Set<Series> series, final DateRange range,
-                final Aggregation aggregation, final boolean disableCache, final FetchQuotaWatcher watcher) {
-            final List<AsyncFuture<ResultGroups>> callbacks = new ArrayList<>();
-
-            run(new InternalOperation() {
-                @Override
-                public void run(final int disabled, final MetricBackend backend) throws Exception {
-                    callbacks.add(fetch(source, group, backend, series, range, aggregation, watcher).error(
-                            ResultGroups.seriesError(group)));
-                }
-            });
-
-            return async.collect(callbacks, ResultGroups.merger()).onAny(reporter.reportQuery());
         }
 
         @Override
         public AsyncFuture<WriteResult> write(final WriteMetric write) {
             final List<AsyncFuture<WriteResult>> callbacks = new ArrayList<>();
 
-            run(new InternalOperation() {
-                @Override
-                public void run(int disabled, MetricBackend backend) throws Exception {
-                    callbacks.add(backend.write(write));
-                }
+            run((int disabled, MetricBackend backend) -> {
+                callbacks.add(backend.write(write));
             });
 
-            return async.collect(callbacks, WriteResult.merger()).onAny(reporter.reportWrite());
+            return async.collect(callbacks, WriteResult.merger()).on(reporter.reportWrite());
         }
 
         /**
@@ -253,25 +280,19 @@ public class LocalMetricManager implements MetricManager {
         public AsyncFuture<WriteResult> write(final Collection<WriteMetric> writes) {
             final List<AsyncFuture<WriteResult>> callbacks = new ArrayList<>();
 
-            run(new InternalOperation() {
-                @Override
-                public void run(int disabled, MetricBackend backend) throws Exception {
-                    callbacks.add(backend.write(writes));
-                }
+            run((int disabled, MetricBackend backend) -> {
+                callbacks.add(backend.write(writes));
             });
 
-            return async.collect(callbacks, WriteResult.merger()).onAny(reporter.reportWriteBatch());
+            return async.collect(callbacks, WriteResult.merger()).on(reporter.reportWriteBatch());
         }
 
         @Override
         public AsyncFuture<List<BackendKey>> keys(final BackendKey start, final BackendKey end, final int limit) {
             final List<AsyncFuture<List<BackendKey>>> callbacks = new ArrayList<>();
 
-            run(new InternalOperation() {
-                @Override
-                public void run(int disabled, MetricBackend backend) throws Exception {
-                    callbacks.add(backend.keys(start, end, limit));
-                }
+            run((int disabled, MetricBackend backend) -> {
+                callbacks.add(backend.keys(start, end, limit));
             });
 
             return async.collect(callbacks, BackendKey.merge());
@@ -292,187 +313,144 @@ public class LocalMetricManager implements MetricManager {
             throw new NotImplementedException("not supported");
         }
 
-        private <T extends TimeData> QueryOperation buildOperation(final Class<T> source, final Filter filter,
-                final DateRange range, final boolean noCache, final Aggregation nested, final FetchQuotaWatcher watcher) {
-            return new QueryOperation() {
+        @Override
+        public AsyncFuture<Void> configure() {
+            final List<AsyncFuture<Void>> callbacks = new ArrayList<>();
+
+            run(new InternalOperation() {
                 @Override
-                public AsyncFuture<ResultGroups> execute(List<TagValues> group, Set<Series> series) {
-                    return fetchAll(source, group, filter, series, range, nested, noCache, watcher);
+                public void run(int disabled, MetricBackend backend) throws Exception {
+                    callbacks.add(backend.configure());
                 }
-            };
+            });
+
+            return async.collectAndDiscard(callbacks);
         }
 
-        private LazyTransform<FindSeries, ResultGroups> runQueries(final QueryOperation op,
-                final Aggregation aggregation, final FetchQuotaWatcher watcher) {
-            return new LazyTransform<FindSeries, ResultGroups>() {
+        @Override
+        public AsyncFuture<Iterator<BackendKey>> allKeys(final BackendKey start, final int limit) {
+            final List<AsyncFuture<Iterator<BackendKey>>> callbacks = new ArrayList<>();
+
+            run(new InternalOperation() {
                 @Override
-                public AsyncFuture<ResultGroups> transform(final FindSeries result) throws Exception {
-                    if (result.getSize() >= seriesLimit)
-                        throw new IllegalArgumentException("The total number of series fetched " + result.getSize()
-                                + " would exceed the allowed limit of " + seriesLimit);
+                public void run(int disabled, MetricBackend backend) throws Exception {
+                    callbacks.add(backend.allKeys(start, limit));
+                }
+            });
 
-                    final Map<List<TagValues>, Set<Series>> groups = setupMetricGroups(aggregation, result.getSeries());
+            return async.collect(callbacks).transform(new Transform<Collection<Iterator<BackendKey>>, Iterator<BackendKey>>() {
+                @Override
+                public Iterator<BackendKey> transform(Collection<Iterator<BackendKey>> result) throws Exception {
+                    return Iterators.concat(result.iterator());
+                }
+            });
+        }
 
-                    if (groups.size() > groupLimit)
-                        throw new IllegalArgumentException("The current query is too heavy! (More than " + groupLimit
-                                + " timeseries would be sent to your browser).");
+        @Override
+        public AsyncFuture<List<String>> serializeKeyToHex(BackendKey key) {
+            final List<AsyncFuture<List<String>>> callbacks = new ArrayList<>();
 
-                    final List<Callable<AsyncFuture<ResultGroups>>> futures = new ArrayList<>();
+            runAll((disabled, backend) -> callbacks.add(backend.serializeKeyToHex(key)));
 
-                    for (final Map.Entry<List<TagValues>, Set<Series>> entry : groups.entrySet()) {
-                        final List<TagValues> key = entry.getKey();
-                        final Set<Series> series = entry.getValue();
+            return async.collect(callbacks).transform(new Transform<Collection<List<String>>, List<String>>() {
+                public List<String> transform(Collection<List<String>> result) throws Exception {
+                    final ImmutableList.Builder<String> builder = ImmutableList.builder();
 
-                        if (series.isEmpty())
-                            continue;
-
-                        futures.add(new Callable<AsyncFuture<ResultGroups>>() {
-                            @Override
-                            public AsyncFuture<ResultGroups> call() throws Exception {
-                                return op.execute(key, series);
-                            }
-                        });
+                    for (final List<String> k : result) {
+                        builder.addAll(k);
                     }
 
-                    return async.eventuallyCollect(futures, collectResultGroups(watcher), groupFetchParallelism);
+                    return builder.build();
+                };
+            });
+        }
+
+
+        @Override
+        public AsyncFuture<List<BackendKey>> deserializeKeyFromHex(String key) {
+            final List<AsyncFuture<List<BackendKey>>> callbacks = new ArrayList<>();
+
+            runAll((disabled, backend) -> callbacks.add(backend.deserializeKeyFromHex(key)));
+
+            return async.collect(callbacks).transform(new Transform<Collection<List<BackendKey>>, List<BackendKey>>() {
+                public List<BackendKey> transform(Collection<List<BackendKey>> result) throws Exception {
+                    final ImmutableList.Builder<BackendKey> builder = ImmutableList.builder();
+
+                    for (final List<BackendKey> k : result) {
+                        builder.addAll(k);
+                    }
+
+                    return builder.build();
+                };
+            });
+        }
+
+        private StreamCollector<FetchData, ResultGroups> collectResultGroups(final FetchQuotaWatcher watcher,
+                final Aggregation aggregation, final AggregationSession session, MetricType output) {
+            return new StreamCollector<FetchData, ResultGroups>() {
+                @Override
+                public void resolved(FetchData result) throws Exception {
+                    for (final MetricTypedGroup g : result.getGroups()) {
+                        g.getType().updateAggregation(session, result.getSeries().getTags(),
+                                ImmutableSet.of(result.getSeries()), g.getData());
+                    }
                 }
 
-                private StreamCollector<ResultGroups, ResultGroups> collectResultGroups(final FetchQuotaWatcher watcher) {
-                    return new StreamCollector<ResultGroups, ResultGroups>() {
-                        final ConcurrentLinkedQueue<ResultGroups> results = new ConcurrentLinkedQueue<>();
+                @Override
+                public void failed(Throwable cause) throws Exception {
+                    log.error("Fetch failed", cause);
+                }
 
-                        @Override
-                        public void resolved(ResultGroups result) throws Exception {
-                            results.add(result);
+                @Override
+                public void cancelled() throws Exception {
+                }
+
+                @Override
+                public ResultGroups end(int resolved, int failed, int cancelled) throws Exception {
+                    if (failed > 0 || cancelled > 0) {
+                        final String message = String.format("Some result groups failed (%d) or were cancelled (%d)",
+                                failed, cancelled);
+
+                        if (watcher.isQuotaViolated())
+                            throw new Exception(message + " (fetch quota was reached)");
+
+                        throw new Exception(message);
+                    }
+
+                    final AggregationResult result = session.result();
+
+                    final List<ResultGroup> groups = new ArrayList<>();
+
+                    for (final AggregationData group : result.getResult()) {
+                        /* skip empty groups (no valid values) */
+                        if (group.isEmpty()) {
+                            continue;
                         }
 
-                        @Override
-                        public void failed(Throwable cause) throws Exception {
-                            log.error("Fetch failed", cause);
-                        }
+                        final List<TagValues> g = group(group.getSeries());
+                        groups.add(new ResultGroup(g, new MetricTypedGroup(group.getType(), group.getValues()),
+                                aggregation.cadence()));
+                    }
 
-                        @Override
-                        public void cancelled() throws Exception {
-                        }
+                    final Statistics stat = result.getStatistics()
+                            .merge(Statistics.of(MetricManager.RESOLVED, resolved, MetricManager.FAILED, failed));
 
-                        @Override
-                        public ResultGroups end(int resolved, int failed, int cancelled) throws Exception {
-                            if (failed > 0 || cancelled > 0) {
-                                final String message = String.format(
-                                        "Some result groups failed (%d) or were cancelled (%d)", failed, cancelled);
-
-                                if (watcher.isQuotaViolated())
-                                    throw new Exception(message + " (fetch quota was reached)");
-
-                                throw new Exception(message);
-                            }
-
-                            return ResultGroups.merge(results);
-                        }
-                    };
+                    return new ResultGroups(groups, ImmutableList.of(), stat);
                 }
             };
         }
 
-        private Map<List<TagValues>, Set<Series>> setupMetricGroups(Aggregation aggregation, final Set<Series> series) {
-            final List<Aggregation.TraverseState> states = convert(aggregation, series);
-
-            final Map<List<TagValues>, Set<Series>> results = new HashMap<>();
-
-            int total = 0;
-
-            for (final Aggregation.TraverseState s : states) {
-                total += s.getSeries().size();
-                results.put(key(s.getSeries()), s.getSeries());
+        private void runAll(InternalOperation op) {
+            for (final MetricBackend b : backends.getAll()) {
+                try {
+                    op.run(backends.getDisabled(), b);
+                } catch (final Exception e) {
+                    throw new RuntimeException("setting up backend operation failed", e);
+                }
             }
-
-            if (total != series.size())
-                throw new IllegalStateException("traverse stage must only map the number of series, not change it");
-
-            return results;
-        }
-
-        private List<Aggregation.TraverseState> convert(Aggregation aggregation, Set<Series> series) {
-            final List<Aggregation.TraverseState> groups = new ArrayList<>(series.size());
-
-            for (final Series s : series)
-                groups.add(new Aggregation.TraverseState(s.getTags(), ImmutableSet.of(s)));
-
-            if (aggregation != null)
-                return aggregation.traverse(groups);
-
-            return groups;
-        }
-
-        private <T extends TimeData> AsyncFuture<ResultGroups> fetch(Class<T> source, List<TagValues> group,
-                MetricBackend backend, Set<Series> series, final DateRange range, Aggregation aggregation,
-                final FetchQuotaWatcher watcher) {
-            final DateRange modified = aggregateRange(range, aggregation);
-            final List<AsyncFuture<FetchData<T>>> fetches = new ArrayList<>();
-
-            for (final Series serie : series)
-                fetches.add(backend.fetch(source, serie, modified, watcher));
-
-            return async.collect(fetches, aggregationReducer(source, group, range, aggregation, fetches));
-        }
-
-        /**
-         * Return a modified range if an aggregation is specified.
-         *
-         * Aggregations require a range to get modified according to their extent in order to 'fetch' datapoints for the
-         * entire aggregation range.
-         *
-         * @param range
-         *            The range to modify.
-         * @param aggregation
-         *            The aggregation to use for the modification.
-         * @return The original range if no aggregation is specified, otherwise a modified one.
-         */
-        private DateRange aggregateRange(final DateRange range, final Aggregation aggregation) {
-            if (aggregation == null)
-                return range;
-
-            final Sampling sampling = aggregation.sampling();
-
-            if (sampling == null)
-                return range;
-
-            return range.shiftStart(-sampling.getExtent());
-        }
-
-        private <T extends TimeData> StreamCollector<FetchData<T>, ResultGroups> aggregationReducer(Class<T> in,
-                List<TagValues> group, final DateRange range, final Aggregation aggregation,
-                final List<? extends AsyncFuture<?>> fetches) {
-            if (aggregation == null || aggregation.sampling() == null)
-                return new SimpleCallbackStream<T>(in);
-
-            final Class<?> expected = aggregation.input();
-
-            if (!matches(expected, in))
-                throw new IllegalArgumentException("input of aggregation does not match [" + expected + " != " + in
-                        + "]");
-
-            final long estimate = aggregation.estimate(range);
-
-            if (estimate != -1 && estimate > aggregationLimit)
-                throw new IllegalArgumentException(String.format("aggregation would result in more than %d datapoints",
-                        aggregationLimit));
-
-            final Aggregation.Session session = aggregation.session(in, range);
-            return new AggregatedCallbackStream<T>(group, session, fetches);
-        }
-
-        private boolean matches(Class<?> expected, Class<?> actual) {
-            if (expected == null)
-                return true;
-
-            return expected.isAssignableFrom(actual);
         }
 
         private void run(InternalOperation op) {
-            if (backends.isEmpty())
-                throw new IllegalStateException("cannot run operation; no backends available for given group");
-
             for (final MetricBackend b : backends) {
                 try {
                     op.run(backends.getDisabled(), b);
@@ -483,7 +461,16 @@ public class LocalMetricManager implements MetricManager {
         }
     }
 
-    private final Comparator<String> COMPARATOR = new Comparator<String>() {
+    private static List<AggregationState> states(Set<Series> series) {
+        final List<AggregationState> states = new ArrayList<>(series.size());
+
+        for (final Series s : series)
+            states.add(new AggregationState(s.getTags(), ImmutableSet.of(s)));
+
+        return states;
+    }
+
+    private static final Comparator<String> COMPARATOR = new Comparator<String>() {
         @Override
         public int compare(String a, String b) {
             if (a == null) {
@@ -500,7 +487,7 @@ public class LocalMetricManager implements MetricManager {
         }
     };
 
-    private List<TagValues> key(Set<Series> series) {
+    private static List<TagValues> group(Set<Series> series) {
         final Map<String, SortedSet<String>> key = new HashMap<>();
 
         for (final Series s : series) {
@@ -516,19 +503,15 @@ public class LocalMetricManager implements MetricManager {
             }
         }
 
-        final List<TagValues> tags = new ArrayList<>(key.size());
+        final List<TagValues> group = new ArrayList<>(key.size());
 
         for (final Map.Entry<String, SortedSet<String>> e : key.entrySet())
-            tags.add(new TagValues(e.getKey(), new ArrayList<>(e.getValue())));
+            group.add(new TagValues(e.getKey(), new ArrayList<>(e.getValue())));
 
-        return tags;
+        return group;
     }
 
     private static interface InternalOperation {
         void run(int disabled, MetricBackend backend) throws Exception;
-    }
-
-    private static interface QueryOperation {
-        AsyncFuture<ResultGroups> execute(List<TagValues> group, Set<Series> series);
     }
 }

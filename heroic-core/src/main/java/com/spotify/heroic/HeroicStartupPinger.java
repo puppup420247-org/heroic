@@ -37,7 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spotify.heroic.HeroicInternalLifeCycle.Context;
-import com.spotify.heroic.injection.LifeCycle;
+import com.spotify.heroic.common.LifeCycle;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
@@ -55,14 +55,6 @@ import eu.toolchain.async.AsyncFuture;
 @ToString(of = { "ping", "id" })
 public class HeroicStartupPinger implements LifeCycle {
     @Inject
-    @Named("startupPing")
-    private URI ping;
-
-    @Inject
-    @Named("startupId")
-    private String id;
-
-    @Inject
     private HeroicServer server;
 
     @Inject
@@ -75,14 +67,11 @@ public class HeroicStartupPinger implements LifeCycle {
     @Inject
     private AsyncFramework async;
 
-    @Data
-    public static final class PingMessage {
-        private final int port;
-        private final String id;
-    }
+    private final URI ping;
+    private final String id;
 
     @Override
-    public AsyncFuture<Void> start() throws Exception {
+    public AsyncFuture<Void> start() {
         lifecycle.register("Startup Ping", new HeroicInternalLifeCycle.StartupHook() {
             @Override
             public void onStartup(Context context) throws Exception {
@@ -96,7 +85,7 @@ public class HeroicStartupPinger implements LifeCycle {
     }
 
     @Override
-    public AsyncFuture<Void> stop() throws Exception {
+    public AsyncFuture<Void> stop() {
         return async.resolved(null);
     }
 
@@ -127,5 +116,11 @@ public class HeroicStartupPinger implements LifeCycle {
         try (final DatagramSocket socket = new DatagramSocket()) {
             socket.send(packet);
         }
+    }
+
+    @Data
+    public static final class PingMessage {
+        private final int port;
+        private final String id;
     }
 }

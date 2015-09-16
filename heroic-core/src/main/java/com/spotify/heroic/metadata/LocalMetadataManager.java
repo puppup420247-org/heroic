@@ -29,10 +29,10 @@ import javax.inject.Named;
 
 import lombok.NoArgsConstructor;
 
-import com.spotify.heroic.exceptions.BackendGroupException;
+import com.spotify.heroic.common.BackendGroupException;
+import com.spotify.heroic.common.BackendGroups;
+import com.spotify.heroic.common.GroupMember;
 import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
-import com.spotify.heroic.utils.BackendGroups;
-import com.spotify.heroic.utils.GroupMember;
 
 import eu.toolchain.async.AsyncFramework;
 
@@ -47,6 +47,16 @@ public class LocalMetadataManager implements MetadataManager {
 
     @Inject
     private LocalMetadataManagerReporter reporter;
+
+    @Override
+    public List<MetadataBackend> allMembers() {
+        return backends.allMembers();
+    }
+
+    @Override
+    public List<MetadataBackend> use(String group) throws BackendGroupException {
+        return backends.use(group).getMembers();
+    }
 
     @Override
     public List<GroupMember<MetadataBackend>> getBackends() {

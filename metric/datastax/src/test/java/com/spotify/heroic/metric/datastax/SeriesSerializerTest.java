@@ -7,8 +7,8 @@ import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
+import com.spotify.heroic.common.Series;
 import com.spotify.heroic.metric.datastax.serializer.SeriesSerializer;
-import com.spotify.heroic.model.Series;
 
 public class SeriesSerializerTest {
     private static final SeriesSerializer serializer = new SeriesSerializer();
@@ -23,25 +23,7 @@ public class SeriesSerializerTest {
 
     @Test
     public void testEmpty() throws Exception {
-        final Series series = new Series(null, new HashMap<String, String>());
-        Assert.assertEquals(series, roundTrip(series));
-    }
-
-    @Test
-    public void testTagsWithNull() throws Exception {
-        final Map<String, String> tags = new HashMap<String, String>();
-        tags.put(null, null);
-        final Series series = new Series(null, tags);
-        Assert.assertEquals(series, roundTrip(series));
-    }
-
-    @Test
-    public void testTagsWithMixed() throws Exception {
-        final Map<String, String> tags = new HashMap<String, String>();
-        tags.put(null, null);
-        tags.put("foo", "bar");
-        tags.put("bar", null);
-        final Series series = new Series(null, tags);
+        final Series series = Series.of(null, new HashMap<String, String>());
         Assert.assertEquals(series, roundTrip(series));
     }
 
@@ -50,7 +32,7 @@ public class SeriesSerializerTest {
         final Map<String, String> tags = new HashMap<String, String>();
         tags.put("a", "b");
         tags.put("b", "c");
-        final Series series = new Series("baz", tags);
+        final Series series = Series.of("baz", tags);
         Assert.assertEquals(series, roundTrip(series));
     }
 }

@@ -24,6 +24,7 @@ package com.spotify.heroic;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.IOException;
+import java.lang.Thread.UncaughtExceptionHandler;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -36,25 +37,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-
-import javax.inject.Named;
-import javax.inject.Singleton;
-
-import lombok.extern.slf4j.Slf4j;
+import java.util.function.Function;
 
 import org.apache.commons.lang3.tuple.Pair;
 
 import com.fasterxml.jackson.core.JsonLocation;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -62,66 +60,26 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Binder;
 import com.google.inject.Binding;
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.Key;
 import com.google.inject.Module;
-import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Names;
 import com.spotify.heroic.HeroicInternalLifeCycle.Context;
-import com.spotify.heroic.aggregation.Aggregation;
-import com.spotify.heroic.aggregation.AggregationFactory;
-import com.spotify.heroic.aggregation.AggregationQuery;
-import com.spotify.heroic.aggregation.AggregationSerializer;
-import com.spotify.heroic.aggregation.CoreAggregationRegistry;
-import com.spotify.heroic.aggregationcache.AggregationCacheBackendModule;
-import com.spotify.heroic.cluster.ClusterDiscoveryModule;
-import com.spotify.heroic.cluster.RpcProtocolModule;
-import com.spotify.heroic.common.TypeNameMixin;
+import com.spotify.heroic.cluster.LocalClusterNode;
+import com.spotify.heroic.common.LifeCycle;
 import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.consumer.ConsumerModule;
-import com.spotify.heroic.filter.CoreFilterFactory;
-import com.spotify.heroic.filter.CoreFilterModifier;
-import com.spotify.heroic.filter.FilterFactory;
-import com.spotify.heroic.filter.FilterJsonDeserializer;
-import com.spotify.heroic.filter.FilterJsonDeserializerImpl;
-import com.spotify.heroic.filter.FilterJsonSerializer;
-import com.spotify.heroic.filter.FilterJsonSerializerImpl;
-import com.spotify.heroic.filter.FilterModifier;
-import com.spotify.heroic.filter.FilterSerializer;
-import com.spotify.heroic.filter.FilterSerializerImpl;
-import com.spotify.heroic.grammar.CoreQueryParser;
-import com.spotify.heroic.grammar.QueryParser;
-import com.spotify.heroic.injection.CollectingTypeListener;
-import com.spotify.heroic.injection.IsSubclassOf;
-import com.spotify.heroic.injection.LifeCycle;
-import com.spotify.heroic.metadata.MetadataModule;
-import com.spotify.heroic.metric.MetricModule;
-import com.spotify.heroic.model.CacheKeySerializer;
-import com.spotify.heroic.model.CacheKeySerializerImpl;
-import com.spotify.heroic.model.DataPoint;
-import com.spotify.heroic.model.DataPointSerializer;
-import com.spotify.heroic.model.Event;
-import com.spotify.heroic.model.EventSerializer;
-import com.spotify.heroic.model.SamplingSerializer;
-import com.spotify.heroic.model.SamplingSerializerImpl;
-import com.spotify.heroic.scheduler.DefaultScheduler;
 import com.spotify.heroic.scheduler.Scheduler;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.noop.NoopHeroicReporter;
-import com.spotify.heroic.suggest.SuggestModule;
-import com.spotify.heroic.utils.CoreHttpAsyncUtils;
-import com.spotify.heroic.utils.HttpAsyncUtils;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.FutureDone;
-import eu.toolchain.async.TinyAsync;
-import eu.toolchain.serializer.SerializerFramework;
-import eu.toolchain.serializer.TinySerializer;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Configure and bootstrap a Heroic application.
@@ -131,20 +89,31 @@ import eu.toolchain.serializer.TinySerializer;
  * @author udoprog
  */
 @Slf4j
-public class HeroicCore {
-    private static final List<Class<?>> DEFAULT_MODULES = ImmutableList.of();
-    private static final List<HeroicConfigurator> DEFAULT_CONFIGURATORS = ImmutableList.of();
-    private static final boolean DEFAULT_SERVER = true;
-    private static final String DEFAULT_HOST = "0.0.0.0";
-    private static final int DEFAULT_PORT = 8080;
-    private static final boolean DEFAULT_ONESHOT = false;
+public class HeroicCore implements HeroicCoreInjector, HeroicOptions {
+    static final List<Class<?>> DEFAULT_MODULES = ImmutableList.of();
+    static final boolean DEFAULT_SERVER = true;
+    static final String DEFAULT_HOST = "0.0.0.0";
+    static final int DEFAULT_PORT = 8080;
+    static final boolean DEFAULT_ONESHOT = false;
 
     /**
      * Which resource file to load modules from.
      */
-    private static final String APPLICATION_JSON_INTERNAL = "application/json+internal";
-    private static final String APPLICATION_JSON = "application/json";
-    private static final String APPLICATION_HEROIC_CONFIG = "application/heroic-config";
+    static final String APPLICATION_JSON_INTERNAL = "application/json+internal";
+    static final String APPLICATION_JSON = "application/json";
+    static final String APPLICATION_HEROIC_CONFIG = "application/heroic-config";
+
+    static final UncaughtExceptionHandler uncaughtExceptionHandler = new UncaughtExceptionHandler() {
+        @Override
+        public void uncaughtException(Thread t, Throwable e) {
+            try {
+                System.err.println(String.format("Uncaught exception caught in thread %s, exiting...", t));
+                e.printStackTrace(System.err);
+            } finally {
+                System.exit(1);
+            }
+        }
+    };
 
     /**
      * Built-in modules that should always be loaded.
@@ -162,7 +131,7 @@ public class HeroicCore {
     private final String host;
     private final Integer port;
     private final List<Class<?>> modules;
-    private final List<HeroicConfigurator> configurators;
+    private final List<HeroicBootstrap> bootstrappers;
     private final boolean server;
     private final Path configPath;
     private final HeroicProfile profile;
@@ -170,21 +139,35 @@ public class HeroicCore {
     private final URI startupPing;
     private final String startupId;
     private final boolean oneshot;
+    private final boolean disableBackends;
+    private final boolean skipLifecycles;
 
-    public HeroicCore(String host, Integer port, List<Class<?>> modules, List<HeroicConfigurator> configurators,
+    public HeroicCore(String host, Integer port, List<Class<?>> modules, List<HeroicBootstrap> bootstrappers,
             Boolean server, Path configPath, HeroicProfile profile, HeroicReporter reporter, URI startupPing,
-            String startupId, Boolean oneshot) {
+            String startupId, boolean oneshot, boolean disableBackends, boolean skipLifecycles) {
         this.host = Optional.fromNullable(host).or(DEFAULT_HOST);
         this.port = port;
         this.modules = Optional.fromNullable(modules).or(DEFAULT_MODULES);
-        this.configurators = Optional.fromNullable(configurators).or(DEFAULT_CONFIGURATORS);
+        this.bootstrappers = ImmutableList.copyOf(Optional.fromNullable(bootstrappers).or(ImmutableList.of()));
         this.server = Optional.fromNullable(server).or(DEFAULT_SERVER);
         this.configPath = configPath;
         this.profile = profile;
         this.reporter = Optional.fromNullable(reporter).or(NoopHeroicReporter.get());
         this.startupPing = startupPing;
         this.startupId = startupId;
-        this.oneshot = Optional.fromNullable(oneshot).or(DEFAULT_ONESHOT);
+        this.oneshot = oneshot;
+        this.disableBackends = disableBackends;
+        this.skipLifecycles = skipLifecycles;
+    }
+
+    @Override
+    public boolean isDisableLocal() {
+        return disableBackends;
+    }
+
+    @Override
+    public boolean isOneshot() {
+        return oneshot;
     }
 
     private final Object $lock = new Object();
@@ -216,10 +199,16 @@ public class HeroicCore {
         final HeroicConfig config = config(early);
         final Injector primary = primaryInjector(config, early);
 
-        /* execute configurators (before starting all life cycles) */
-        for (final HeroicConfigurator configurator : configurators()) {
-            configurator.setup(primary);
+        for (final HeroicBootstrap bootstrap : bootstrappers) {
+            try {
+                primary.injectMembers(bootstrap);
+                bootstrap.run();
+            } catch (Exception e) {
+                throw new Exception("Failed to run bootstrapper " + bootstrap, e);
+            }
         }
+
+        this.primary.set(primary);
 
         try {
             startLifeCycles(primary);
@@ -251,8 +240,6 @@ public class HeroicCore {
             }
         });
 
-        this.primary.set(primary);
-
         lifecycle.start();
         log.info("Heroic was successfully started!");
     }
@@ -262,15 +249,27 @@ public class HeroicCore {
      *
      * @param injectee Object to inject fields on.
      */
+    @Override
     public <T> T inject(T injectee) {
         final Injector primary = this.primary.get();
 
         if (primary == null) {
-            throw new IllegalStateException("heroic has not started");
+            throw new IllegalStateException("primary injector not available");
         }
 
         primary.injectMembers(injectee);
         return injectee;
+    }
+
+    @Override
+    public <T> T injectInstance(Class<T> cls) {
+        final Injector primary = this.primary.get();
+
+        if (primary == null) {
+            throw new IllegalStateException("primary injector not available");
+        }
+
+        return primary.getInstance(cls);
     }
 
     public void join() throws InterruptedException {
@@ -317,122 +316,47 @@ public class HeroicCore {
     private Injector earlyInjector() {
         log.info("Building Early Injector");
 
-        final Scheduler scheduler = new DefaultScheduler();
+        final ExecutorService executor = buildCoreExecutor(Runtime.getRuntime().availableProcessors() * 2);
+        final HeroicInternalLifeCycle lifeCycle = new HeroicInernalLifeCycleImpl();
 
-        final ExecutorService executorService = Executors.newFixedThreadPool(1000, new ThreadFactoryBuilder()
-                .setNameFormat("heroic-core-%d").build());
+        return Guice.createInjector(new HeroicEarlyModule(executor, lifeCycle, this));
+    }
 
-        final HeroicInternalLifeCycle lifecycle = new HeroicInernalLifeCycleImpl();
-
-        // build default serialization to be used everywhere.
-        final Module serializers = new AbstractModule() {
-            @Provides
-            @Singleton
-            @Named("common")
-            private SerializerFramework serializer() {
-                return TinySerializer.builder().build();
-            }
-
-            @Provides
-            @Singleton
-            @Inject
-            private FilterSerializer filterSerializer(@Named("common") SerializerFramework s) {
-                return new FilterSerializerImpl(s, s.integer(), s.string());
-            }
-
-            @Provides
-            @Singleton
-            @Inject
-            private CoreAggregationRegistry aggregationRegistry(@Named("common") SerializerFramework s) {
-                return new CoreAggregationRegistry(s.string());
-            }
-
-            @Provides
-            @Singleton
-            @Inject
-            private AggregationSerializer aggregationSerializer(CoreAggregationRegistry registry) {
-                return registry;
-            }
-
-            @Provides
-            @Singleton
-            @Inject
-            private AggregationFactory aggregationFactory(CoreAggregationRegistry registry) {
-                return registry;
-            }
-
-            @Provides
-            @Singleton
-            @Inject
-            private SamplingSerializer samplingSerializer(@Named("common") SerializerFramework s) {
-                return new SamplingSerializerImpl(s.longNumber());
-            }
-
-            @Provides
-            @Singleton
-            @Inject
-            private CacheKeySerializer cacheKeySerializer(@Named("common") SerializerFramework s,
-                    FilterSerializer filter, AggregationSerializer aggregation) {
-                return new CacheKeySerializerImpl(s.integer(), filter, s.map(s.nullable(s.string()),
-                        s.nullable(s.string())), aggregation, s.longNumber());
-            }
-
+    /**
+     * Setup a fixed thread pool executor that correctly handles unhandled exceptions.
+     *
+     * @param nThreads Number of threads to configure.
+     * @return
+     */
+    private ExecutorService buildCoreExecutor(final int nThreads) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<Runnable>(),
+                new ThreadFactoryBuilder().setNameFormat("heroic-core-%d")
+                        .setUncaughtExceptionHandler(uncaughtExceptionHandler).build()) {
             @Override
-            protected void configure() {
-                bind(FilterJsonSerializer.class).toInstance(new FilterJsonSerializerImpl());
-                bind(FilterJsonDeserializer.class).toInstance(new FilterJsonDeserializerImpl());
+            protected void afterExecute(Runnable r, Throwable t) {
+                super.afterExecute(r, t);
+
+                if (t == null && (r instanceof Future<?>)) {
+                    try {
+                        ((Future<?>) r).get();
+                    } catch (CancellationException e) {
+                        t = e;
+                    } catch (ExecutionException e) {
+                        t = e.getCause();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+
+                if (t != null) {
+                    log.error("Unhandled exception caught in core executor", t);
+                    log.error("Exiting (code=2)");
+                    System.exit(2);
+                }
             }
         };
-
-        final Module core = new AbstractModule() {
-            @Provides
-            @Singleton
-            public AsyncFramework async(ExecutorService executor) {
-                return TinyAsync.builder().executor(executor).build();
-            }
-
-            @Provides
-            @Singleton
-            @Named("oneshot")
-            private boolean oneshot() {
-                return oneshot;
-            }
-
-            @Provides
-            @Singleton
-            @Named(APPLICATION_HEROIC_CONFIG)
-            private ObjectMapper configMapper() {
-                final ObjectMapper m = new ObjectMapper(new YAMLFactory());
-
-                m.addMixIn(AggregationCacheBackendModule.class, TypeNameMixin.class);
-                m.addMixIn(ClusterDiscoveryModule.class, TypeNameMixin.class);
-                m.addMixIn(RpcProtocolModule.class, TypeNameMixin.class);
-                m.addMixIn(ConsumerModule.class, TypeNameMixin.class);
-                m.addMixIn(MetadataModule.class, TypeNameMixin.class);
-                m.addMixIn(SuggestModule.class, TypeNameMixin.class);
-                m.addMixIn(MetricModule.class, TypeNameMixin.class);
-
-                return m;
-            }
-
-            @Override
-            protected void configure() {
-                bind(Scheduler.class).toInstance(scheduler);
-                bind(HeroicInternalLifeCycle.class).toInstance(lifecycle);
-                bind(FilterFactory.class).to(CoreFilterFactory.class).in(Scopes.SINGLETON);
-                bind(FilterModifier.class).to(CoreFilterModifier.class).in(Scopes.SINGLETON);
-                bind(QueryParser.class).to(CoreQueryParser.class).in(Scopes.SINGLETON);
-
-                bind(HeroicConfigurationContext.class).to(CoreHeroicConfigurationContext.class).in(Scopes.SINGLETON);
-
-                bind(HeroicContext.class).toInstance(new CoreHeroicContext());
-                bind(ExecutorService.class).toInstance(executorService);
-
-                bind(HttpAsyncUtils.class).toInstance(new CoreHttpAsyncUtils());
-            }
-        };
-
-        return Guice.createInjector(core, serializers);
     }
 
     /**
@@ -448,89 +372,40 @@ public class HeroicCore {
 
         final List<Module> modules = new ArrayList<Module>();
 
-        final Set<LifeCycle> lifecycles = new HashSet<>();
+        final Set<LifeCycle> lifeCycles = new HashSet<>();
 
         final InetSocketAddress bindAddress = setupBindAddress(config);
 
+        final HeroicStartupPinger pinger;
+
+        if (startupPing != null && startupId != null) {
+            pinger = new HeroicStartupPinger(startupPing, startupId);
+        } else {
+            pinger = null;
+        }
+
         // register root components.
-        modules.add(new AbstractModule() {
-            @Provides
-            @Singleton
-            public Set<LifeCycle> lifecycles() {
-                return lifecycles;
-            }
-
-            @Provides
-            @Singleton
-            @Named("bindAddress")
-            public InetSocketAddress bindAddress() {
-                return bindAddress;
-            }
-
-            @Provides
-            @Singleton
-            @Named(APPLICATION_JSON_INTERNAL)
-            @Inject
-            public ObjectMapper internalMapper(FilterJsonSerializer serializer, FilterJsonDeserializer deserializer,
-                    AggregationSerializer aggregationSerializer) {
-                final SimpleModule module = new SimpleModule("custom");
-
-                final FilterJsonSerializerImpl serializerImpl = (FilterJsonSerializerImpl) serializer;
-                final FilterJsonDeserializerImpl deserializerImpl = (FilterJsonDeserializerImpl) deserializer;
-                final CoreAggregationRegistry aggregationRegistry = (CoreAggregationRegistry) aggregationSerializer;
-
-                deserializerImpl.configure(module);
-                serializerImpl.configure(module);
-                aggregationRegistry.configure(module);
-
-                module.addSerializer(DataPoint.class, new DataPointSerializer.Serializer());
-                module.addDeserializer(DataPoint.class, new DataPointSerializer.Deserializer());
-
-                module.addSerializer(Event.class, new EventSerializer.Serializer());
-                module.addDeserializer(Event.class, new EventSerializer.Deserializer());
-
-                final ObjectMapper mapper = new ObjectMapper();
-
-                mapper.addMixIn(Aggregation.class, TypeNameMixin.class);
-                mapper.addMixIn(AggregationQuery.class, TypeNameMixin.class);
-
-                mapper.registerModule(module);
-                mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
-                return mapper;
-            }
-
-            @Provides
-            @Singleton
-            @Named(APPLICATION_JSON)
-            @Inject
-            public ObjectMapper jsonMapper(@Named(APPLICATION_JSON_INTERNAL) ObjectMapper mapper) {
-                return mapper;
-            }
-
-            @Override
-            protected void configure() {
-                if (server)
-                    bind(HeroicServer.class).in(Scopes.SINGLETON);
-
-                bind(HeroicReporter.class).toInstance(reporter);
-
-                if (startupPing != null && startupId != null) {
-                    bind(URI.class).annotatedWith(Names.named("startupPing")).toInstance(startupPing);
-                    bind(String.class).annotatedWith(Names.named("startupId")).toInstance(startupId);
-                    bind(HeroicStartupPinger.class).in(Scopes.SINGLETON);
-                }
-
-                bindListener(new IsSubclassOf(LifeCycle.class), new CollectingTypeListener<LifeCycle>(lifecycles));
-            }
-        });
+        modules.add(new HeroicPrimaryModule(this, lifeCycles, config, bindAddress, server, reporter, pinger));
 
         modules.add(config.getClient());
-        modules.add(config.getMetric());
-        modules.add(config.getMetadata());
-        modules.add(config.getSuggest());
-        modules.add(config.getCluster());
+
+        if (!disableBackends) {
+            modules.add(new AbstractModule() {
+                @Override
+                protected void configure() {
+                    bind(LocalClusterNode.class).in(Scopes.SINGLETON);
+                }
+            });
+            modules.add(config.getMetric());
+            modules.add(config.getMetadata());
+            modules.add(config.getSuggest());
+            modules.add(config.getIngestion());
+
+            config.getShellServer().transform(modules::add);
+        }
+
+        modules.add(config.getCluster().make(this));
         modules.add(config.getCache());
-        modules.add(config.getIngestion());
 
         modules.add(new AbstractModule() {
             @Override
@@ -576,80 +451,81 @@ public class HeroicCore {
         return modules;
     }
 
-    private List<HeroicConfigurator> configurators() {
-        final List<HeroicConfigurator> configurators = new ArrayList<>();
-        configurators.addAll(this.configurators);
-        return configurators;
-    }
-
     private void startLifeCycles(Injector primary) throws Exception {
-        final AsyncFramework async = primary.getInstance(AsyncFramework.class);
-        final Set<LifeCycle> lifecycles = primary.getInstance(Key.get(new TypeLiteral<Set<LifeCycle>>() {
-        }));
-
-        final List<AsyncFuture<Void>> futures = new ArrayList<>();
-
         log.info("Starting life cycles");
 
-        for (final LifeCycle startable : lifecycles) {
-            log.info("Starting: {}", startable);
-            futures.add(startable.start());
+        if (!awaitLifeCycles("start", primary, 120, LifeCycle::start)) {
+            throw new Exception("Failed to start all life cycles");
         }
-
-        async.collect(futures).get();
 
         log.info("Started all life cycles");
     }
 
     private void stopLifeCycles(final Injector primary) throws Exception {
-        final AsyncFramework async = primary.getInstance(AsyncFramework.class);
-        final Set<LifeCycle> lifecycles = primary.getInstance(Key.get(new TypeLiteral<Set<LifeCycle>>() {
-        }));
-
-        final List<AsyncFuture<Void>> futures = new ArrayList<>();
         log.info("Stopping life cycles");
 
-        final List<Pair<AsyncFuture<Void>, LifeCycle>> pairs = new ArrayList<>();
-
-        /* fire Stoppable handlers */
-        for (final LifeCycle stoppable : lifecycles) {
-            try {
-                final AsyncFuture<Void> future = stoppable.stop().on(new FutureDone<Void>() {
-                    @Override
-                    public void failed(Throwable cause) throws Exception {
-                        log.info("Failed to stop: {}", stoppable, cause);
-                    }
-
-                    @Override
-                    public void resolved(Void result) throws Exception {
-                        log.info("Stopped: {}", stoppable);
-                    }
-
-                    @Override
-                    public void cancelled() throws Exception {
-                        log.info("Stop cancelled: {}", stoppable);
-                    }
-                });
-
-                futures.add(future);
-                pairs.add(Pair.of(future, stoppable));
-            } catch (Exception e) {
-                log.error("Failed to stop {}", stoppable, e);
-            }
-        }
-
-        try {
-            async.collect(futures).get(10, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            log.error("Some futures did not stop in a timely fashion!");
-
-            for (final Pair<AsyncFuture<Void>, LifeCycle> pair : pairs) {
-                if (!pair.getLeft().isDone())
-                    log.error("Did not stop: {}", pair.getRight());
-            }
+        if (!awaitLifeCycles("stop", primary, 10, LifeCycle::stop)) {
+            log.warn("Failed to stop all life cycles");
+            return;
         }
 
         log.info("Stopped all life cycles");
+    }
+
+    private boolean awaitLifeCycles(final String op, final Injector primary, final int awaitSeconds, final Function<LifeCycle, AsyncFuture<Void>> fn) throws InterruptedException, ExecutionException {
+        final AsyncFramework async = primary.getInstance(AsyncFramework.class);
+
+        // we still need to get instances to cause them to be created.
+        final Set<LifeCycle> lifeCycles = primary.getInstance(Key.get(new TypeLiteral<Set<LifeCycle>>() {
+        }));
+
+        if (skipLifecycles) {
+            log.info("{}: skipping (skipLifecycles = true)", op);
+            return true;
+        }
+
+        final List<AsyncFuture<Void>> futures = new ArrayList<>();
+        final List<Pair<AsyncFuture<Void>, LifeCycle>> pairs = new ArrayList<>();
+
+        for (final LifeCycle l : lifeCycles) {
+            log.info("{}: running {}", op, l);
+
+            final AsyncFuture<Void> future = fn.apply(l).on(new FutureDone<Void>() {
+                @Override
+                public void failed(Throwable cause) throws Exception {
+                    log.info("{}: failed: {}", op, l, cause);
+                }
+
+                @Override
+                public void resolved(Void result) throws Exception {
+                    log.info("{}: done: {}", op, l);
+                }
+
+                @Override
+                public void cancelled() throws Exception {
+                    log.info("{}: cancelled: {}", op, l);
+                }
+            });
+
+            futures.add(future);
+            pairs.add(Pair.of(future, l));
+        }
+
+        try {
+            async.collect(futures).get(awaitSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            log.error("Operation timed out");
+
+            for (final Pair<AsyncFuture<Void>, LifeCycle> pair : pairs) {
+                if (!pair.getLeft().isDone()) {
+                    log.error("{}: did not finish in time: {}", op, pair.getRight());
+                }
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private HeroicConfig config(Injector earlyInjector) throws Exception {
@@ -708,11 +584,14 @@ public class HeroicCore {
         }
     }
 
+    public static Builder builder() {
+        return new Builder();
+    }
+
     public static final class Builder {
         private String host;
         private Integer port;
         private List<Class<?>> modules = new ArrayList<>();
-        private List<HeroicConfigurator> configurators = new ArrayList<>();
         private boolean server = false;
         private Path configPath;
         private HeroicProfile profile;
@@ -720,6 +599,9 @@ public class HeroicCore {
         private URI startupPing;
         private String startupId;
         private boolean oneshot = false;
+        private boolean disableBackends = false;
+        private boolean skipLifecycles = false;
+        private List<HeroicBootstrap> bootstrappers = new ArrayList<>();
 
         public Builder module(Class<?> module) {
             this.modules.add(checkNotNull(module, "module must not be null"));
@@ -736,6 +618,22 @@ public class HeroicCore {
          */
         public Builder server(boolean server) {
             this.server = server;
+            return this;
+        }
+
+        /**
+         * Disable local backends.
+         */
+        public Builder disableBackends(boolean disableBackends) {
+            this.disableBackends = disableBackends;
+            return this;
+        }
+
+        /**
+         * Skip startup of lifecycles.
+         */
+        public Builder skipLifecycles(boolean skipLifecycles) {
+            this.skipLifecycles = skipLifecycles;
             return this;
         }
 
@@ -771,11 +669,6 @@ public class HeroicCore {
             return this;
         }
 
-        public Builder configurator(HeroicConfigurator configurator) {
-            this.configurators.add(checkNotNull(configurator, "configurator must not be null"));
-            return this;
-        }
-
         public Builder startupPing(String startupPing) {
             this.startupPing = URI.create(checkNotNull(startupPing, "startupPing must not be null"));
             return this;
@@ -799,9 +692,14 @@ public class HeroicCore {
             return this;
         }
 
+        public Builder bootstrap(HeroicBootstrap bootstrap) {
+            this.bootstrappers.add(bootstrap);
+            return this;
+        }
+
         public HeroicCore build() {
-            return new HeroicCore(host, port, modules, configurators, server, configPath, profile, reporter,
-                    startupPing, startupId, oneshot);
+            return new HeroicCore(host, port, modules, bootstrappers, server, configPath, profile, reporter,
+                    startupPing, startupId, oneshot, disableBackends, skipLifecycles);
         }
 
         public Builder modules(List<String> modules) {
@@ -822,9 +720,5 @@ public class HeroicCore {
 
             return result;
         }
-    }
-
-    public static Builder builder() {
-        return new Builder();
     }
 }

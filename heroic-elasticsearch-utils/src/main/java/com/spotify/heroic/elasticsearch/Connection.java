@@ -23,28 +23,39 @@ package com.spotify.heroic.elasticsearch;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
-
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.ListenableActionFuture;
+import org.elasticsearch.action.admin.indices.template.put.PutIndexTemplateRequestBuilder;
+import org.elasticsearch.action.admin.indices.template.put.PutIndexTemplateResponse;
 import org.elasticsearch.action.bulk.BulkProcessor;
 import org.elasticsearch.action.count.CountRequestBuilder;
 import org.elasticsearch.action.deletebyquery.DeleteByQueryRequestBuilder;
+import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchScrollRequestBuilder;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.client.IndicesAdminClient;
+import org.elasticsearch.common.unit.TimeValue;
 
+import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.elasticsearch.index.IndexMapping;
 import com.spotify.heroic.elasticsearch.index.NoIndexSelectedException;
-import com.spotify.heroic.model.DateRange;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
+import eu.toolchain.async.FutureCancelled;
+import eu.toolchain.async.ResolvableFuture;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Common connection abstraction between Node and TransportClient.
  */
+@Slf4j
 @RequiredArgsConstructor
 @ToString(of = { "index", "client" })
 public class Connection {
@@ -52,6 +63,10 @@ public class Connection {
     private final IndexMapping index;
     private final Client client;
     private final BulkProcessor bulk;
+
+    private final String templateName;
+    private final Map<String, Map<String, Object>> mappings;
+    private final Map<String, Object> settings;
 
     public AsyncFuture<Void> close() {
         final List<AsyncFuture<Void>> futures = new ArrayList<>();
@@ -75,6 +90,51 @@ public class Connection {
         return async.collectAndDiscard(futures);
     }
 
+    public AsyncFuture<Void> configure() {
+        final IndicesAdminClient indices = client.admin().indices();
+
+        log.info("[{}] updating template for {}", templateName, index.template());
+
+        final PutIndexTemplateRequestBuilder put = indices.preparePutTemplate(templateName);
+
+        put.setSettings(settings);
+        put.setTemplate(index.template());
+
+        for (final Map.Entry<String, Map<String, Object>> mapping : mappings.entrySet()) {
+            put.addMapping(mapping.getKey(), mapping.getValue());
+        }
+
+        final ResolvableFuture<Void> future = async.future();
+
+        final ListenableActionFuture<PutIndexTemplateResponse> target = put.execute();
+
+        target.addListener(new ActionListener<PutIndexTemplateResponse>() {
+            @Override
+            public void onResponse(final PutIndexTemplateResponse response) {
+                if (!response.isAcknowledged()) {
+                    future.fail(new Exception("request not acknowledged"));
+                    return;
+                }
+
+                future.resolve(null);
+            }
+
+            @Override
+            public void onFailure(Throwable e) {
+                future.fail(e);
+            }
+        });
+
+        future.on(new FutureCancelled() {
+            @Override
+            public void cancelled() throws Exception {
+                target.cancel(false);
+            }
+        });
+
+        return future;
+    }
+
     public String[] readIndices(DateRange range) throws NoIndexSelectedException {
         return index.readIndices(range);
     }
@@ -93,6 +153,10 @@ public class Connection {
 
     public DeleteByQueryRequestBuilder deleteByQuery(DateRange range, String type) throws NoIndexSelectedException {
         return index.deleteByQuery(client, range, type);
+    }
+
+    public IndexRequestBuilder index(String index, String type) {
+        return client.prepareIndex(index, type);
     }
 
     public SearchScrollRequestBuilder prepareSearchScroll(String scrollId) {

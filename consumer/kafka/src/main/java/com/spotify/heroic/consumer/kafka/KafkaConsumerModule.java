@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import kafka.consumer.ConsumerConfig;
 import kafka.consumer.KafkaStream;
 import kafka.javaapi.consumer.ConsumerConnector;
-import lombok.RequiredArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -44,11 +44,11 @@ import com.google.inject.Module;
 import com.google.inject.PrivateModule;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
+import com.spotify.heroic.common.ReflectionUtils;
 import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.consumer.ConsumerModule;
 import com.spotify.heroic.consumer.ConsumerSchema;
 import com.spotify.heroic.statistics.ConsumerReporter;
-import com.spotify.heroic.utils.ReflectionUtils;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
@@ -58,7 +58,7 @@ import eu.toolchain.async.ManagedSetup;
 import eu.toolchain.async.ResolvableFuture;
 
 @Slf4j
-@RequiredArgsConstructor
+@Data
 public class KafkaConsumerModule implements ConsumerModule {
     public static final int DEFAULT_THREADS_PER_TOPIC = 2;
 

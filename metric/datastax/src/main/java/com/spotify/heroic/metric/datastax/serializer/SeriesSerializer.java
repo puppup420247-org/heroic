@@ -26,7 +26,7 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.TreeMap;
 
-import com.spotify.heroic.model.Series;
+import com.spotify.heroic.common.Series;
 
 public class SeriesSerializer implements CustomSerializer<Series> {
     private final CustomSerializer<String> key = new StringSerializer();
@@ -65,6 +65,6 @@ public class SeriesSerializer implements CustomSerializer<Series> {
         final CompositeStream reader = new CompositeStream(buffer);
         final String key = reader.next(this.key);
         final Map<String, String> tags = reader.next(this.tags);
-        return new Series(key, tags);
+        return Series.of(key, tags);
     }
 }
