@@ -3,13 +3,11 @@ package com.spotify.heroic.spotify;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
-import lombok.extern.slf4j.Slf4j;
-
-import com.google.inject.Injector;
-import com.spotify.heroic.HeroicConfigurator;
+import com.google.inject.Inject;
+import com.spotify.heroic.HeroicBootstrap;
+import com.spotify.heroic.HeroicCore.Builder;
 import com.spotify.heroic.HeroicInternalLifeCycle;
 import com.spotify.heroic.HeroicService;
-import com.spotify.heroic.HeroicCore.Builder;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.semantic.SemanticHeroicReporter;
 import com.spotify.metrics.core.MetricId;
@@ -18,6 +16,8 @@ import com.spotify.metrics.ffwd.FastForwardReporter;
 import com.spotify.metrics.jvm.GarbageCollectorMetricSet;
 import com.spotify.metrics.jvm.MemoryUsageGaugeSet;
 import com.spotify.metrics.jvm.ThreadStatesMetricSet;
+
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class SpotifyConfiguration implements HeroicService.Configuration {
@@ -28,10 +28,12 @@ public class SpotifyConfiguration implements HeroicService.Configuration {
         final SemanticMetricRegistry registry = new SemanticMetricRegistry();
         final HeroicReporter reporter = new SemanticHeroicReporter(registry);
 
-        builder.reporter(reporter).configurator(new HeroicConfigurator() {
+        builder.reporter(reporter).bootstrap(new HeroicBootstrap() {
+            @Inject
+            HeroicInternalLifeCycle lifecycle;
+
             @Override
-            public void setup(final Injector injector) throws Exception {
-                final HeroicInternalLifeCycle lifecycle = injector.getInstance(HeroicInternalLifeCycle.class);
+            public void run() throws Exception {
                 final FastForwardReporter ffwd = setupReporter(registry, params.getId());
 
                 lifecycle.registerShutdown("FastForward Reporter", new HeroicInternalLifeCycle.ShutdownHook() {
