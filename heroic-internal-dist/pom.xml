@@ -32,8 +32,8 @@
     </dependency>
 
     <dependency>
-      <groupId>com.spotify.heroic.statistics</groupId>
-      <artifactId>heroic-statistics-semantic</artifactId>
+      <groupId>com.spotify.metrics</groupId>
+      <artifactId>semantic-metrics-core</artifactId>
     </dependency>
 
     <dependency>

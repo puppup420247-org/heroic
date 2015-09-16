@@ -7,15 +7,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import lombok.ToString;
-
 import org.apache.commons.lang3.StringUtils;
 
-import com.spotify.heroic.cluster.model.NodeMetadata;
+import com.spotify.heroic.cluster.NodeMetadata;
 import com.spotify.heroic.statistics.ClusteredMetricManagerReporter;
 import com.spotify.heroic.statistics.FutureReporter;
 import com.spotify.metrics.core.MetricId;
 import com.spotify.metrics.core.SemanticMetricRegistry;
+
+import lombok.ToString;
 
 @ToString(of = {})
 public class SemanticClusteredMetricManagerReporter implements ClusteredMetricManagerReporter {
