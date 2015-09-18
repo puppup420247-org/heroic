@@ -1,0 +1,8 @@
+metrics:
+  backends:
+    - type: datastax
+      group: heroic
+      seeds:
+        - awsuse1-heroiccassandra-a1.shared.cloud.spotify.net
+        - awsuse1-heroiccassandra-a2.shared.cloud.spotify.net
+        - awsuse1-heroiccassandra-a3.shared.cloud.spotify.net

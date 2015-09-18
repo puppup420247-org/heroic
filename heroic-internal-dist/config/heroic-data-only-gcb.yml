@@ -1,0 +1,8 @@
+metrics:
+  backends:
+    - type: datastax
+      group: heroic
+      seeds:
+        - gcb2-heroiccassandra-a1.gcb2.spotify.net
+        - gcb2-heroiccassandra-a2.gcb2.spotify.net
+        - gcb2-heroiccassandra-a3.gcb2.spotify.net

@@ -1,5 +1,3 @@
-port: 8080
-
 metrics:
   backends:
     - type: datastax
@@ -8,8 +6,3 @@ metrics:
         - ash2-heroiccassandra-a1.spotify.net
         - ash2-heroiccassandra-a2.spotify.net
         - ash2-heroiccassandra-a3.spotify.net
-
-ingestion:
-  updateMetrics: false
-  updateMetadata: false
-  updateSuggestions: false
