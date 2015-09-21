@@ -5,8 +5,10 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.inject.Inject;
 import com.spotify.heroic.HeroicBootstrap;
+import com.spotify.heroic.HeroicConfig;
 import com.spotify.heroic.HeroicCore.Builder;
 import com.spotify.heroic.HeroicInternalLifeCycle;
+import com.spotify.heroic.HeroicReporterConfiguration;
 import com.spotify.heroic.HeroicService;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.semantic.SemanticHeroicReporter;
@@ -25,15 +27,26 @@ public class SpotifyConfiguration implements HeroicService.Configuration {
     public void configure(final Builder builder, final HeroicService.Parameters params) {
         log.info("Setting up spotify-internal configuration");
 
-        final SemanticMetricRegistry registry = new SemanticMetricRegistry();
-        final HeroicReporter reporter = new SemanticHeroicReporter(registry);
-
-        builder.reporter(reporter).bootstrap(new HeroicBootstrap() {
+        builder.early(new HeroicBootstrap() {
             @Inject
             HeroicInternalLifeCycle lifecycle;
 
+            @Inject
+            HeroicConfig config;
+
+            @Inject
+            HeroicReporterConfiguration reporterConfiguration;
+
             @Override
             public void run() throws Exception {
+                if (config.isDisableMetrics()) {
+                    log.warn("Not configuring metrics reporting since it is disabled");
+                    return;
+                }
+
+                final SemanticMetricRegistry registry = new SemanticMetricRegistry();
+                final HeroicReporter reporter = new SemanticHeroicReporter(registry);
+
                 final FastForwardReporter ffwd = setupReporter(registry, params.getId());
 
                 lifecycle.registerShutdown("FastForward Reporter", new HeroicInternalLifeCycle.ShutdownHook() {
@@ -43,6 +56,8 @@ public class SpotifyConfiguration implements HeroicService.Configuration {
                         ffwd.stop();
                     }
                 });
+
+                reporterConfiguration.registerReporter(reporter);
             }
         });
     }
