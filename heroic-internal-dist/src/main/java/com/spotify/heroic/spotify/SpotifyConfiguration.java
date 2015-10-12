@@ -27,7 +27,7 @@ public class SpotifyConfiguration implements HeroicService.Configuration {
     public void configure(final Builder builder, final HeroicService.Parameters params) {
         log.info("Setting up spotify-internal configuration");
 
-        builder.early(new HeroicBootstrap() {
+        builder.earlyBootstrap(new HeroicBootstrap() {
             @Inject
             HeroicInternalLifeCycle lifecycle;
 
@@ -39,7 +39,7 @@ public class SpotifyConfiguration implements HeroicService.Configuration {
 
             @Override
             public void run() throws Exception {
-                if (config.isDisableMetrics()) {
+                if (config.getDisableMetrics().orElse(false)) {
                     log.warn("Not configuring metrics reporting since it is disabled");
                     return;
                 }
