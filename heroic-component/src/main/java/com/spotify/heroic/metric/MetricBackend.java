@@ -22,7 +22,6 @@
 package com.spotify.heroic.metric;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 
 import com.spotify.heroic.common.DateRange;
@@ -80,7 +79,7 @@ public interface MetricBackend extends Initializing, Grouped {
      * @return A future containing the fetched data wrapped in a {@link FetchData} structure.
      */
     public AsyncFuture<FetchData> fetch(MetricType type, Series series, DateRange range,
-            FetchQuotaWatcher watcher);
+            FetchQuotaWatcher watcher, QueryOptions options);
 
     /**
      * List all series directly from the database.
@@ -104,12 +103,7 @@ public interface MetricBackend extends Initializing, Grouped {
      *            Limit the amount of results, max will always be 1000.
      * @return A future containing a list of backend keys.
      */
-    public AsyncFuture<List<BackendKey>> keys(BackendKey start, BackendKey end, int limit);
-
-    /**
-     * Iterate all backend keys.
-     */
-    public AsyncFuture<Iterator<BackendKey>> allKeys(BackendKey start, int limit);
+    public AsyncFuture<BackendKeySet> keys(BackendKey start, int limit, final QueryOptions options);
 
     /**
      * Serialize the given key, and return the hex-representation.

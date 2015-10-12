@@ -21,56 +21,58 @@
 
 package com.spotify.heroic.metric;
 
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import lombok.Data;
-
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
 import com.spotify.heroic.common.Series;
 
 import eu.toolchain.async.Collector;
+import lombok.Data;
 
 @Data
 public class FetchData {
     private final Series series;
     private final List<Long> times;
-    private final List<MetricTypedGroup> groups;
+    private final List<MetricCollection> groups;
+    private final QueryTrace trace;
 
-    public static <T extends Metric> Collector<FetchData, FetchData> merger(final Series series) {
-        return new Collector<FetchData, FetchData>() {
-            @Override
-            public FetchData collect(Collection<FetchData> results) throws Exception {
-                final ImmutableList.Builder<Long> times = ImmutableList.builder();
-                final Map<MetricType, ImmutableList.Builder<Metric>> fetchGroups = new HashMap<>();
+    public static Collector<FetchData, FetchData> collect(final QueryTrace.Identifier what, final Series series) {
+        final Stopwatch w = Stopwatch.createStarted();
 
-                for (final FetchData fetch : results) {
-                    times.addAll(fetch.times);
+        return results -> {
+            final ImmutableList.Builder<Long> times = ImmutableList.builder();
+            final Map<MetricType, ImmutableList.Builder<Metric>> fetchGroups = new HashMap<>();
+            final ImmutableList.Builder<QueryTrace> traces = ImmutableList.builder();
 
-                    for (final MetricTypedGroup g : fetch.groups) {
-                        ImmutableList.Builder<Metric> data = fetchGroups.get(g.getType());
+            for (final FetchData fetch : results) {
+                times.addAll(fetch.times);
+                traces.add(fetch.trace);
 
-                        if (data == null) {
-                            data = new ImmutableList.Builder<>();
-                            fetchGroups.put(g.getType(), data);
-                        }
+                for (final MetricCollection g : fetch.groups) {
+                    ImmutableList.Builder<Metric> data = fetchGroups.get(g.getType());
 
-                        data.addAll(g.data);
+                    if (data == null) {
+                        data = new ImmutableList.Builder<>();
+                        fetchGroups.put(g.getType(), data);
                     }
+
+                    data.addAll(g.data);
                 }
-
-                final List<MetricTypedGroup> groups = fetchGroups
-                        .entrySet()
-                        .stream()
-                        .map((e) -> new MetricTypedGroup(e.getKey(), Ordering.from(e.getKey().comparator())
-                                .immutableSortedCopy(e.getValue().build()))).collect(Collectors.toList());
-
-                return new FetchData(series, times.build(), groups);
             }
+
+            final List<MetricCollection> groups = fetchGroups.entrySet().stream()
+                    .map((e) -> MetricCollection.build(e.getKey(),
+                            Ordering.from(e.getKey().comparator()).immutableSortedCopy(e.getValue().build())))
+                    .collect(Collectors.toList());
+
+            return new FetchData(series, times.build(), groups,
+                    new QueryTrace(what, w.elapsed(TimeUnit.NANOSECONDS), traces.build()));
         };
     }
 }

@@ -23,9 +23,6 @@ package com.spotify.heroic.shell.task;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.PrintWriter;
-import java.util.Iterator;
-
 import org.kohsuke.args4j.Option;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -35,15 +32,18 @@ import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import com.spotify.heroic.common.Series;
 import com.spotify.heroic.metric.BackendKey;
+import com.spotify.heroic.metric.MetricBackendGroup;
+import com.spotify.heroic.metric.MetricBackends;
 import com.spotify.heroic.metric.MetricManager;
+import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.shell.AbstractShellTaskParams;
+import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
 import com.spotify.heroic.shell.TaskUsage;
 
 import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Transform;
 import lombok.Data;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
@@ -65,7 +65,7 @@ public class Keys implements ShellTask {
     }
 
     @Override
-    public AsyncFuture<Void> run(final PrintWriter out, TaskParameters base) throws Exception {
+    public AsyncFuture<Void> run(final ShellIO io, TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
 
         final BackendKey start;
@@ -76,38 +76,34 @@ public class Keys implements ShellTask {
             start = null;
         }
 
-        final int limit = Math.max(1, Math.min(10000, params.limit));
+        final int limit = Math.max(1, Math.min(1000, params.limit));
 
-        return metrics.useGroup(params.group).allKeys(start, limit)
-                .transform(new Transform<Iterator<BackendKey>, Void>() {
-                    @Override
-                    public Void transform(Iterator<BackendKey> result) throws Exception {
-                        long i = 0;
+        final QueryOptions options = QueryOptions.builder().tracing(params.tracing).build();
 
-                        while (result.hasNext()) {
-                            final BackendKey next;
+        final MetricBackendGroup group = metrics.useGroup(params.group);
 
-                            try {
-                                next = result.next();
-                            } catch(Exception e) {
-                                log.warn("Exception when pulling key", e);
-                                continue;
-                            }
+        return MetricBackends.keysPager(start, limit, (s, l) -> group.keys(s, l, options), (set) -> {
+            if (set.getTrace().isPresent()) {
+                set.getTrace().get().formatTrace(io.out());
+                io.out().flush();
+            }
+        }).directTransform(result -> {
+            while (result.hasNext()) {
+                final BackendKey next;
 
-                            out.println(mapper.writeValueAsString(next));
-                            out.flush();
-                        }
+                try {
+                    next = result.next();
+                } catch (Exception e) {
+                    log.warn("Exception when pulling key", e);
+                    continue;
+                }
 
-                        return null;
-                    }
-                });
-    }
+                io.out().println(mapper.writeValueAsString(next));
+                io.out().flush();
+            }
 
-    private BackendKey seriesEnd(Series series) {
-        if (series == null)
             return null;
-
-        return new BackendKey(series, 0xffffffffffffffffl);
+        });
     }
 
     @Data
@@ -136,5 +132,8 @@ public class Keys implements ShellTask {
 
         @Option(name = "--group", usage = "Backend group to use", metaVar = "<group>")
         private String group = null;
+
+        @Option(name = "--tracing", usage = "Trace the queries for more debugging when things go wrong")
+        private boolean tracing = false;
     }
 }

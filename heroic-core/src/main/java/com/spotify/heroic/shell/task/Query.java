@@ -21,7 +21,6 @@
 
 package com.spotify.heroic.shell.task;
 
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -34,18 +33,18 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import com.spotify.heroic.QueryManager;
-import com.spotify.heroic.metric.MetricTypedGroup;
-import com.spotify.heroic.metric.QueryResult;
+import com.spotify.heroic.metric.MetricCollection;
+import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.metric.RequestError;
 import com.spotify.heroic.metric.ShardedResultGroup;
 import com.spotify.heroic.shell.AbstractShellTaskParams;
+import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
 import com.spotify.heroic.shell.TaskUsage;
 
 import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Transform;
 import lombok.ToString;
 
 @TaskUsage("Execute a query")
@@ -64,36 +63,37 @@ public class Query implements ShellTask {
     }
 
     @Override
-    public AsyncFuture<Void> run(final PrintWriter out, final TaskParameters base) throws Exception {
+    public AsyncFuture<Void> run(final ShellIO io, final TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
 
         final String queryString = params.query.stream().collect(Collectors.joining(" "));
 
-        final AsyncFuture<QueryResult> result = query.useGroup(params.group).query(
-                query.newQuery().queryString(queryString).build());
-
         final ObjectMapper indent = mapper.copy();
         indent.configure(SerializationFeature.INDENT_OUTPUT, true);
 
-        return result.transform(new Transform<QueryResult, Void>() {
-            @Override
-            public Void transform(QueryResult result) throws Exception {
-                for (final RequestError e : result.getErrors()) {
-                    out.println(String.format("ERR: %s", e.toString()));
-                }
+        final QueryOptions options = QueryOptions.builder().tracing(params.tracing).build();
 
-                for (final ShardedResultGroup resultGroup : result.getGroups()) {
-                    final MetricTypedGroup group = resultGroup.getGroup();
+        return query.useGroup(params.group).query(query.newQueryFromString(queryString).options(options).build())
+                .directTransform(result -> {
+                    for (final RequestError e : result.getErrors()) {
+                        io.out().println(String.format("ERR: %s", e.toString()));
+                    }
 
-                    out.println(String.format("%s: %s %s", group.getType(), resultGroup.getShard(),
-                            resultGroup.getTags()));
-                    out.println(indent.writeValueAsString(group.getData()));
-                    out.flush();
-                }
+                    for (final ShardedResultGroup resultGroup : result.getGroups()) {
+                        final MetricCollection group = resultGroup.getGroup();
 
-                return null;
-            }
-        });
+                        io.out().println(String.format("%s: %s %s", group.getType(), resultGroup.getShard(),
+                                resultGroup.getTags()));
+                        io.out().println(indent.writeValueAsString(group.getData()));
+                        io.out().flush();
+                    }
+
+                    io.out().println("TRACE:");
+                    result.getTrace().formatTrace(io.out());
+                    io.out().flush();
+
+                    return null;
+                });
     }
 
     @ToString
@@ -103,5 +103,8 @@ public class Query implements ShellTask {
 
         @Argument(metaVar = "<query>")
         private List<String> query = new ArrayList<>();
+
+        @Option(name = "--tracing", usage = "Enable extensive tracing")
+        private boolean tracing = false;
     }
 }

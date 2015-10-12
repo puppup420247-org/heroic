@@ -21,12 +21,8 @@
 
 package com.spotify.heroic.shell.task;
 
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-
-import lombok.Getter;
-import lombok.ToString;
 
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -37,16 +33,17 @@ import com.google.inject.name.Named;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.filter.FilterFactory;
 import com.spotify.heroic.grammar.QueryParser;
+import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
 import com.spotify.heroic.shell.TaskUsage;
 import com.spotify.heroic.shell.Tasks;
 import com.spotify.heroic.suggest.SuggestManager;
-import com.spotify.heroic.suggest.TagValueSuggest;
 
 import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Transform;
+import lombok.Getter;
+import lombok.ToString;
 
 @TaskUsage("Get value suggestions for a given key")
 @TaskName("suggest-tag-value")
@@ -70,24 +67,20 @@ public class SuggestTagValue implements ShellTask {
     }
 
     @Override
-    public AsyncFuture<Void> run(final PrintWriter out, TaskParameters base) throws Exception {
+    public AsyncFuture<Void> run(final ShellIO io, TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
 
         final RangeFilter filter = Tasks.setupRangeFilter(filters, parser, params);
 
-        return suggest.useGroup(params.group).tagValueSuggest(filter, params.key)
-                .transform(new Transform<TagValueSuggest, Void>() {
-                    @Override
-                    public Void transform(TagValueSuggest result) throws Exception {
-                        int i = 0;
+        return suggest.useGroup(params.group).tagValueSuggest(filter, params.key).directTransform(result -> {
+            int i = 0;
 
-                        for (final String value : result.getValues()) {
-                            out.println(String.format("%s: %s", i++, value));
-                        }
+            for (final String value : result.getValues()) {
+                io.out().println(String.format("%s: %s", i++, value));
+            }
 
-                        return null;
-                    }
-                });
+            return null;
+        });
     }
 
     @ToString

@@ -21,12 +21,8 @@
 
 package com.spotify.heroic.shell.task;
 
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-
-import lombok.Getter;
-import lombok.ToString;
 
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -37,6 +33,7 @@ import com.google.inject.name.Named;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.filter.FilterFactory;
 import com.spotify.heroic.grammar.QueryParser;
+import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
@@ -47,7 +44,8 @@ import com.spotify.heroic.suggest.MatchOptions;
 import com.spotify.heroic.suggest.SuggestManager;
 
 import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Transform;
+import lombok.Getter;
+import lombok.ToString;
 
 @TaskUsage("Fetch series matching the given query")
 @TaskName("suggest-key")
@@ -71,26 +69,22 @@ public class SuggestKey implements ShellTask {
     }
 
     @Override
-    public AsyncFuture<Void> run(final PrintWriter out, TaskParameters base) throws Exception {
+    public AsyncFuture<Void> run(final ShellIO io, TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
 
         final RangeFilter filter = Tasks.setupRangeFilter(filters, parser, params);
 
         final MatchOptions fuzzyOptions = MatchOptions.builder().build();
 
-        return suggest.useGroup(params.group).keySuggest(filter, fuzzyOptions, params.key)
-                .transform(new Transform<KeySuggest, Void>() {
-                    @Override
-                    public Void transform(KeySuggest result) throws Exception {
-                        int i = 0;
+        return suggest.useGroup(params.group).keySuggest(filter, fuzzyOptions, params.key).directTransform(result -> {
+            int i = 0;
 
-                        for (final KeySuggest.Suggestion suggestion : result.getSuggestions()) {
-                            out.println(String.format("%s: %s", i++, suggestion));
-                        }
+            for (final KeySuggest.Suggestion suggestion : result.getSuggestions()) {
+                io.out().println(String.format("%s: %s", i++, suggestion));
+            }
 
-                        return null;
-                    }
-                });
+            return null;
+        });
     }
 
     @ToString

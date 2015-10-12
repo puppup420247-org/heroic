@@ -21,14 +21,11 @@
 
 package com.spotify.heroic.shell.task;
 
-import java.io.PrintWriter;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
-
-import lombok.ToString;
 
 import org.kohsuke.args4j.Option;
 
@@ -37,13 +34,14 @@ import com.google.inject.Inject;
 import com.google.inject.name.Named;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.Series;
-import com.spotify.heroic.metric.FetchData;
 import com.spotify.heroic.metric.Metric;
 import com.spotify.heroic.metric.MetricBackendGroup;
+import com.spotify.heroic.metric.MetricCollection;
 import com.spotify.heroic.metric.MetricManager;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.MetricTypedGroup;
+import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.shell.AbstractShellTaskParams;
+import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
@@ -51,7 +49,7 @@ import com.spotify.heroic.shell.TaskUsage;
 import com.spotify.heroic.shell.Tasks;
 
 import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Transform;
+import lombok.ToString;
 
 @TaskUsage("Fetch a range of data points")
 @TaskName("fetch")
@@ -69,7 +67,7 @@ public class Fetch implements ShellTask {
     }
 
     @Override
-    public AsyncFuture<Void> run(final PrintWriter out, final TaskParameters base) throws Exception {
+    public AsyncFuture<Void> run(final ShellIO io, final TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
         final long now = System.currentTimeMillis();
 
@@ -93,36 +91,38 @@ public class Fetch implements ShellTask {
         final MetricBackendGroup readGroup = metrics.useGroup(params.group);
         final MetricType source = MetricType.fromIdentifier(params.source);
 
-        return readGroup.fetch(source, series, range).transform(new Transform<FetchData, Void>() {
-            @Override
-            public Void transform(FetchData result) throws Exception {
-                outer:
-                for (final MetricTypedGroup g : result.getGroups()) {
-                    int i = 0;
+        final QueryOptions options = QueryOptions.builder().tracing(params.tracing).build();
 
-                    Calendar current = null;
-                    Calendar last = null;
+        return readGroup.fetch(source, series, range, options).directTransform(result -> {
+            outer:
+            for (final MetricCollection g : result.getGroups()) {
+                int i = 0;
 
-                    for (final Metric d : g.getData()) {
-                        current = Calendar.getInstance();
-                        current.setTime(new Date(d.getTimestamp()));
+                Calendar current = null;
+                Calendar last = null;
 
-                        if (flipped(last, current)) {
-                            out.println(flip.format(current.getTime()));
-                        }
+                for (final Metric d : g.getData()) {
+                    current = Calendar.getInstance();
+                    current.setTime(new Date(d.getTimestamp()));
 
-                        out.println(String.format("  %s: %s", point.format(new Date(d.getTimestamp())), d));
-
-                        if (i++ >= limit)
-                            break outer;
-
-                        last = current;
+                    if (flipped(last, current)) {
+                        io.out().println(flip.format(current.getTime()));
                     }
 
-                }
+                    io.out().println(String.format("  %s: %s", point.format(new Date(d.getTimestamp())), d));
 
-                return null;
+                    if (i++ >= limit)
+                        break outer;
+
+                    last = current;
+                }
             }
+
+            io.out().println("TRACE:");
+            result.getTrace().formatTrace(io.out());
+            io.out().flush();
+
+            return null;
         });
     }
 
@@ -168,5 +168,8 @@ public class Fetch implements ShellTask {
 
         @Option(name = "-g", aliases = { "--group" }, usage = "Backend group to use", metaVar = "<group>")
         private String group = null;
+
+        @Option(name = "--tracing", usage = "Enable extensive tracing")
+        private boolean tracing = false;
     }
 }

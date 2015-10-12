@@ -41,14 +41,14 @@ public class BasicSerializationTest {
 
     @Test
     public void testMetricTypedGroup() throws Exception {
-        final MetricTypedGroup expected = new MetricTypedGroup(MetricType.POINT, new ArrayList<>());
-        assertSerialization("MetricTypedGroup.json", expected, MetricTypedGroup.class);
+        final MetricCollection expected = MetricCollection.points(new ArrayList<>());
+        assertSerialization("MetricTypedGroup.json", expected, MetricCollection.class);
     }
 
     @Test
     public void testResultGroup() throws Exception {
         final List<TagValues> tags = new ArrayList<>();
-        final ResultGroup expected = new ResultGroup(tags, new MetricTypedGroup(MetricType.POINT, new ArrayList<>()), 0l);
+        final ResultGroup expected = new ResultGroup(tags, MetricCollection.points(new ArrayList<>()), 0l);
         assertSerialization("ResultGroup.json", expected, ResultGroup.class);
     }
 
@@ -56,7 +56,7 @@ public class BasicSerializationTest {
     public void testResultGroups() throws Exception {
         final List<ResultGroup> groups = new ArrayList<>();
         final List<RequestError> errors = new ArrayList<>();
-        final ResultGroups expected = new ResultGroups(groups, errors, Statistics.EMPTY);
+        final ResultGroups expected = new ResultGroups(groups, errors, Statistics.EMPTY, new QueryTrace(QueryTrace.identifier("test")));
 
         assertSerialization("ResultGroups.json", expected, ResultGroups.class);
     }

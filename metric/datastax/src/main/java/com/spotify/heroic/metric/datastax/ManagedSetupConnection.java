@@ -22,94 +22,75 @@
 package com.spotify.heroic.metric.datastax;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.Callable;
 
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
-
 import com.datastax.driver.core.Cluster;
+import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.PoolingOptions;
-import com.datastax.driver.core.PreparedStatement;
+import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.SocketOptions;
 import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
+import com.spotify.heroic.metric.datastax.schema.Schema;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.ManagedSetup;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 
 @RequiredArgsConstructor
-@ToString(of = { "seeds", "keyspace" })
+@ToString(of = { "seeds" })
+@Slf4j
 public class ManagedSetupConnection implements ManagedSetup<Connection> {
-    private static final String WRITE_METRICS_CQL = "INSERT INTO metrics (metric_key, data_timestamp_offset, data_value) VALUES (?, ?, ?)";
-
-    private static final String FETCH_METRICS_CQL = ("SELECT data_timestamp_offset, data_value FROM metrics "
-            + "WHERE metric_key = ? and data_timestamp_offset >= ? and data_timestamp_offset <= ? LIMIT ?");
-
-    private static final String KEYS_UNBOUND_CQL = "SELECT DISTINCT metric_key FROM metrics";
-    private static final String KEYS_LEFTBOUND_CQL = "SELECT DISTINCT metric_key FROM metrics WHERE token(metric_key) > token(?)";
-    private static final String KEYS_RIGHTBOUND_CQL = "SELECT DISTINCT metric_key FROM metrics WHERE token(metric_key) <= token(?)";
-    private static final String KEYS_BOUND_CQL = "SELECT DISTINCT metric_key FROM metrics WHERE token(metric_key) > token(?) AND token(metric_key) <= token(?)";
-
     private final AsyncFramework async;
     private final Collection<InetSocketAddress> seeds;
-    private final String keyspace;
+    private final boolean configure;
+    private final Schema schema;
 
     public AsyncFuture<Connection> construct() {
-        return async.call(new Callable<Connection>() {
-            public Connection call() throws Exception {
+        AsyncFuture<Session> session = async.call(new Callable<Session>() {
+            public Session call() throws Exception {
                 // @formatter:off
-                    final HostDistance distance = HostDistance.LOCAL;
-                    final PoolingOptions pooling = new PoolingOptions()
-                        .setMaxConnectionsPerHost(distance, 20)
-                        .setCoreConnectionsPerHost(distance, 4)
-                        .setMaxSimultaneousRequestsPerHostThreshold(distance, Short.MAX_VALUE)
-                        .setMaxSimultaneousRequestsPerConnectionThreshold(distance, 128);
+                final PoolingOptions pooling = new PoolingOptions();
 
-                    final Cluster cluster = Cluster.builder()
-                        .addContactPointsWithPorts(seeds)
-                        .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
-                        .withPoolingOptions(pooling).build();
-                    // @formatter:on
+                final QueryOptions queryOptions = new QueryOptions()
+                    .setFetchSize(1000)
+                    .setConsistencyLevel(ConsistencyLevel.ONE);
 
-                final Session session = cluster.connect(keyspace);
+                final SocketOptions socketOptions = new SocketOptions();
 
-                final PreparedStatement write = session.prepare(WRITE_METRICS_CQL);
-                final PreparedStatement fetch = session.prepare(FETCH_METRICS_CQL);
-                final PreparedStatement keysUnbound = session.prepare(KEYS_UNBOUND_CQL);
-                final PreparedStatement keysLeftbound = session.prepare(KEYS_LEFTBOUND_CQL);
-                final PreparedStatement keysRightbound = session.prepare(KEYS_RIGHTBOUND_CQL);
-                final PreparedStatement keysBound = session.prepare(KEYS_BOUND_CQL);
+                final Cluster cluster = Cluster.builder()
+                    .addContactPointsWithPorts(seeds)
+                    .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
+                    .withPoolingOptions(pooling)
+                    .withQueryOptions(queryOptions)
+                    .withSocketOptions(socketOptions)
+                    .build();
+                // @formatter:on
 
-                return new Connection(cluster, session, write, fetch, keysUnbound, keysLeftbound, keysRightbound,
-                        keysBound);
-            };
+                return cluster.connect();
+            }
+        });
+
+        if (configure) {
+            session = session.lazyTransform(s -> {
+                return schema.configure(s).directTransform(i -> s);
+            });
+        }
+
+        return session.lazyTransform(s -> {
+            return schema.instance(s).directTransform(schema -> {
+                return new Connection(s, schema);
+            });
         });
     }
 
     @Override
     public AsyncFuture<Void> destruct(final Connection c) {
-        final List<AsyncFuture<Void>> futures = new ArrayList<>();
-
-        futures.add(async.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                c.session.close();
-                return null;
-            }
-        }));
-
-        futures.add(async.call(new Callable<Void>() {
-            @Override
-            public Void call() throws Exception {
-                c.cluster.close();
-                return null;
-            }
-        }));
-
-        return async.collectAndDiscard(futures);
+        return Async.bind(async, c.session.closeAsync()).directTransform(ign -> null);
     }
 }

@@ -15,7 +15,6 @@ import com.spotify.heroic.HeroicBootstrap;
 import com.spotify.heroic.HeroicCore;
 import com.spotify.heroic.HeroicInternalLifeCycle;
 import com.spotify.heroic.HeroicModules;
-import com.spotify.heroic.Query;
 import com.spotify.heroic.QueryManager;
 
 import lombok.ToString;
@@ -56,7 +55,7 @@ public class CoalesceService {
         };
 
         /* create a core which does not attempt to use local backends */
-        final HeroicCore core = HeroicCore.builder().disableBackends(true).server(false).modules(HeroicModules.ALL_MODULES)
+        final HeroicCore core = HeroicCore.builder().disableBackends(true).setupServer(false).modules(HeroicModules.ALL_MODULES)
                 .configPath(params.heroicConfig).bootstrap(bootstrap).build();
 
         try {

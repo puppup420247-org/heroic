@@ -21,12 +21,8 @@
 
 package com.spotify.heroic.shell.task;
 
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-
-import lombok.Getter;
-import lombok.ToString;
 
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -36,9 +32,9 @@ import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.filter.FilterFactory;
 import com.spotify.heroic.grammar.QueryParser;
 import com.spotify.heroic.metadata.CountSeries;
-import com.spotify.heroic.metadata.DeleteSeries;
 import com.spotify.heroic.metadata.MetadataBackend;
 import com.spotify.heroic.metadata.MetadataManager;
+import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
@@ -48,7 +44,8 @@ import com.spotify.heroic.shell.Tasks;
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.LazyTransform;
-import eu.toolchain.async.Transform;
+import lombok.Getter;
+import lombok.ToString;
 
 @TaskUsage("Delete metadata matching the given query")
 @TaskName("metadata-delete")
@@ -71,31 +68,25 @@ public class MetadataDelete implements ShellTask {
     }
 
     @Override
-    public AsyncFuture<Void> run(final PrintWriter out, TaskParameters base) throws Exception {
+    public AsyncFuture<Void> run(final ShellIO io, TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
 
         final RangeFilter filter = Tasks.setupRangeFilter(filters, parser, params);
 
         final MetadataBackend group = metadata.useGroup(params.group);
 
-        return group.countSeries(filter).transform(new LazyTransform<CountSeries, Void>() {
+        return group.countSeries(filter).lazyTransform(new LazyTransform<CountSeries, Void>() {
             @Override
             public AsyncFuture<Void> transform(CountSeries c) throws Exception {
-                out.println(String.format("Deleteing %d entrie(s)", c.getCount()));
+                io.out().println(String.format("Deleteing %d entrie(s)", c.getCount()));
 
                 if (!params.ok) {
-                    out.println("Deletion stopped, use --ok to proceed");
+                    io.out().println("Deletion stopped, use --ok to proceed");
                     return async.resolved(null);
                 }
 
-                return group.deleteSeries(filter).transform(new Transform<DeleteSeries, Void>() {
-                    @Override
-                    public Void transform(DeleteSeries result) throws Exception {
-                        return null;
-                    }
-                });
+                return group.deleteSeries(filter).directTransform(r -> null);
             }
-
         });
     }
 

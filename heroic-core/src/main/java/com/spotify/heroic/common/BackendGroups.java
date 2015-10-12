@@ -27,11 +27,12 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
-import lombok.Data;
-
 import com.google.common.collect.ImmutableList;
+
+import lombok.Data;
 
 /**
  * Helper class to manage and query groups of backends.
@@ -138,6 +139,10 @@ public class BackendGroups<T extends Initializing & Grouped> {
         final Map<String, List<T>> groups = new HashMap<>();
 
         for (final T backend : backends) {
+            if (backend.getGroups().isEmpty()) {
+                throw new IllegalStateException("Backend " + backend + " does not belong to any groups");
+            }
+
             for (final String name : backend.getGroups()) {
                 List<T> group = groups.get(name);
 
@@ -154,18 +159,19 @@ public class BackendGroups<T extends Initializing & Grouped> {
     }
 
     private static <T extends Grouped> Set<T> buildDefaults(final Map<String, List<T>> backends,
-            Collection<String> defaultBackends) {
+            Optional<List<String>> defaultBackends) {
         final Set<T> defaults = new HashSet<>();
 
         // add all as defaults.
-        if (defaultBackends == null) {
-            for (final Map.Entry<String, List<T>> entry : backends.entrySet())
+        if (!defaultBackends.isPresent()) {
+            for (final Map.Entry<String, List<T>> entry : backends.entrySet()) {
                 defaults.addAll(entry.getValue());
+            }
 
             return defaults;
         }
 
-        for (final String defaultBackend : defaultBackends) {
+        for (final String defaultBackend : defaultBackends.get()) {
             final List<T> someResult = backends.get(defaultBackend);
 
             if (someResult == null)
@@ -178,7 +184,7 @@ public class BackendGroups<T extends Initializing & Grouped> {
     }
 
     public static <T extends Grouped & Initializing> BackendGroups<T> build(Collection<T> configured,
-            Collection<String> defaultBackends) {
+            Optional<List<String>> defaultBackends) {
         final Map<String, List<T>> mappings = buildBackends(configured);
         final Set<T> defaults = buildDefaults(mappings, defaultBackends);
         return new BackendGroups<T>(ImmutableList.copyOf(configured), mappings, ImmutableList.copyOf(defaults));

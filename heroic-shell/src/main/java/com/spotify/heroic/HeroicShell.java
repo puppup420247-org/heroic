@@ -34,6 +34,7 @@ import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 
 import com.google.common.collect.ImmutableList;
+import com.google.inject.Inject;
 import com.spotify.heroic.HeroicCore.Builder;
 import com.spotify.heroic.elasticsearch.ManagedConnectionFactory;
 import com.spotify.heroic.elasticsearch.TransportClientSetup;
@@ -43,7 +44,10 @@ import com.spotify.heroic.metadata.MetadataModule;
 import com.spotify.heroic.metadata.elasticsearch.ElasticsearchMetadataModule;
 import com.spotify.heroic.shell.AbstractShellTaskParams;
 import com.spotify.heroic.shell.CoreInterface;
-import com.spotify.heroic.shell.CoreShellInterface;
+import com.spotify.heroic.shell.RemoteCoreInterface;
+import com.spotify.heroic.shell.ShellIO;
+import com.spotify.heroic.shell.ShellProtocol;
+import com.spotify.heroic.shell.ShellServer;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskElasticsearchParameters;
 import com.spotify.heroic.shell.TaskParameters;
@@ -54,7 +58,9 @@ import com.spotify.heroic.suggest.SuggestModule;
 import com.spotify.heroic.suggest.elasticsearch.ElasticsearchSuggestModule;
 
 import eu.toolchain.async.AsyncFramework;
+import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.TinyAsync;
+import eu.toolchain.serializer.SerializerFramework;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
@@ -63,6 +69,8 @@ import lombok.extern.slf4j.Slf4j;
 public class HeroicShell {
     public static final Path[] DEFAULT_CONFIGS = new Path[] { Paths.get("heroic.yml"),
             Paths.get("/etc/heroic/heroic.yml") };
+
+    public static SerializerFramework serializer = ShellProtocol.setupSerializer();
 
     public static void main(String[] args) throws IOException {
         Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler() {
@@ -126,17 +134,17 @@ public class HeroicShell {
 
     private static CoreInterface setupCoreBridge(Parameters params, AsyncFramework async) throws Exception {
         if (params.connect != null) {
-            return setupRemoteCoreBridge(params.connect, async);
+            return setupRemoteCore(params.connect, async);
         }
 
-        return setupLocalCoreBridge(params, async);
+        return setupLocalCore(params, async);
     }
 
-    private static CoreInterface setupRemoteCoreBridge(String connect, AsyncFramework async) throws Exception {
-        return RemoteHeroicCoreBridge.fromConnectString(connect, async);
+    private static CoreInterface setupRemoteCore(String connect, AsyncFramework async) throws Exception {
+        return RemoteCoreInterface.fromConnectString(connect, async, serializer);
     }
 
-    private static CoreInterface setupLocalCoreBridge(Parameters params, AsyncFramework async) throws Exception {
+    private static CoreInterface setupLocalCore(Parameters params, AsyncFramework async) throws Exception {
         final HeroicCore.Builder builder = setupBuilder(params);
 
         final HeroicCore core = builder.build();
@@ -145,7 +153,25 @@ public class HeroicShell {
 
         core.start();
 
-        return new LocalHeroicCoreBridge(core, async);
+        return core.inject(new CoreInterface() {
+            @Inject
+            public ShellServer server;
+
+            @Override
+            public AsyncFuture<Void> evaluate(List<String> command, ShellIO io) throws Exception {
+                return server.tasks().evaluate(command, io);
+            }
+
+            @Override
+            public List<CommandDefinition> commands() throws Exception {
+                return server.commands();
+            }
+
+            @Override
+            public void shutdown() throws Exception {
+                core.shutdown();
+            }
+        });
     }
 
     static void interactive(Parameters params, CoreInterface core) {
@@ -168,7 +194,7 @@ public class HeroicShell {
 
     static void runInteractiveShell(final CoreInterface core)
             throws Exception {
-        final List<CommandDefinition> commands = new ArrayList<>(core.getCommands());
+        final List<CommandDefinition> commands = new ArrayList<>(core.commands());
 
         commands.add(new CommandDefinition("clear", ImmutableList.of(), "Clear the current shell"));
         commands.add(new CommandDefinition("timeout", ImmutableList.of(), "Get or set the current task timeout"));
@@ -176,10 +202,9 @@ public class HeroicShell {
 
         try (final FileInputStream input = new FileInputStream(FileDescriptor.in)) {
             final HeroicInteractiveShell interactive = HeroicInteractiveShell.buildInstance(commands, input);
-            final CoreShellInterface c = core.setup(interactive);
 
             try {
-                interactive.run(c);
+                interactive.run(core);
             } finally {
                 interactive.shutdown();
             }
@@ -231,9 +256,10 @@ public class HeroicShell {
             core.inject(task);
 
             final PrintWriter o = standaloneOutput(params, System.out);
+            final ShellIO io = new DirectShellIO(o);
 
             try {
-                task.run(o, params).get();
+                task.run(io, params).get();
             } catch (Exception e) {
                 log.error("Failed to run task", e);
             } finally {
@@ -262,11 +288,9 @@ public class HeroicShell {
         final String backendType = params.getBackendType();
 
         builder.profile(new HeroicProfile() {
-
             @Override
-            public HeroicConfig build() throws Exception {
+            public HeroicConfig.Builder build(HeroicParameters params) throws Exception {
                 // @formatter:off
-
                 final TransportClientSetup clientSetup = TransportClientSetup.builder()
                     .clusterName(clusterName)
                     .seeds(seeds)
@@ -282,7 +306,7 @@ public class HeroicShell {
                                     .writesPerSecond(0d)
                                     .build()
                                 )
-                            ).build()
+                            )
                         )
                         .suggest(
                             SuggestManagerModule.builder()
@@ -295,10 +319,7 @@ public class HeroicShell {
                                     .build()
                                 )
                             )
-                            .build()
-                        )
-
-                .build();
+                        );
                 // @formatter:on
             }
 
@@ -359,18 +380,20 @@ public class HeroicShell {
     }
 
     static HeroicCore.Builder setupBuilder(Parameters params) {
-        HeroicCore.Builder builder = HeroicCore.builder().server(params.server).disableBackends(params.disableBackends)
+        HeroicCore.Builder builder = HeroicCore.builder().setupServer(params.server).disableBackends(params.disableBackends)
                 .skipLifecycles(params.skipLifecycles).modules(HeroicModules.ALL_MODULES).oneshot(true);
 
         if (params.config() != null) {
             builder.configPath(parseConfigPath(params.config()));
         }
 
-        if (params.profile() != null) {
-            final HeroicProfile p = HeroicModules.PROFILES.get(params.profile());
+        builder.parameters(HeroicParameters.ofList(params.parameters));
+
+        for (final String profile : params.profiles()) {
+            final HeroicProfile p = HeroicModules.PROFILES.get(profile);
 
             if (p == null) {
-                throw new IllegalArgumentException(String.format("not a valid profile: %s", params.profile()));
+                throw new IllegalArgumentException(String.format("not a valid profile: %s", profile));
             }
 
             builder.profile(p);
@@ -392,6 +415,9 @@ public class HeroicShell {
 
         @Option(name = "--connect", usage = "Connect to a remote heroic server")
         private String connect = null;
+
+        @Option(name = "-X", usage="Define an extra parameter", metaVar="<key>=<value>")
+        private final List<String> parameters = new ArrayList<>();
     }
 
     @RequiredArgsConstructor

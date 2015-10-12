@@ -22,10 +22,8 @@
 package com.spotify.heroic.cluster;
 
 import java.util.List;
-import java.util.UUID;
 
 import com.google.inject.Inject;
-import com.google.inject.name.Named;
 import com.spotify.heroic.aggregation.Aggregation;
 import com.spotify.heroic.common.BackendGroupException;
 import com.spotify.heroic.common.DateRange;
@@ -42,6 +40,7 @@ import com.spotify.heroic.metadata.MetadataManager;
 import com.spotify.heroic.metric.MetricBackendGroup;
 import com.spotify.heroic.metric.MetricManager;
 import com.spotify.heroic.metric.MetricType;
+import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.metric.ResultGroups;
 import com.spotify.heroic.metric.WriteMetric;
 import com.spotify.heroic.metric.WriteResult;
@@ -56,7 +55,6 @@ import com.spotify.heroic.suggest.TagValuesSuggest;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
-import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 
@@ -104,8 +102,8 @@ public class LocalClusterNode implements ClusterNode {
 
         @Override
         public AsyncFuture<ResultGroups> query(MetricType source, Filter filter,
-                DateRange range, Aggregation aggregation, boolean disableCache) {
-            return metrics().query(source, filter, range, aggregation, disableCache);
+                DateRange range, Aggregation aggregation, QueryOptions options) {
+            return metrics().query(source, filter, range, aggregation, options);
         }
 
         @Override

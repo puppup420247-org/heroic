@@ -4,13 +4,6 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map.Entry;
-import java.util.SortedMap;
-import java.util.TreeMap;
-
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
-import lombok.extern.slf4j.Slf4j;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.inject.Inject;
@@ -22,6 +15,10 @@ import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.Borrowed;
 import eu.toolchain.async.Managed;
+import eu.toolchain.serializer.SerializerFramework;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 
 @RequiredArgsConstructor
 @ToString(of = { "state" })
@@ -37,6 +34,10 @@ public class ShellServer implements LifeCycle {
     @Named("application/json")
     ObjectMapper mapper;
 
+    @Inject
+    @Named("shell-protocol")
+    SerializerFramework serializer;
+
     @Override
     public boolean isReady() {
         return state.isReady();
@@ -44,8 +45,8 @@ public class ShellServer implements LifeCycle {
 
     @Override
     public AsyncFuture<Void> start() {
-        return state.start().lazyTransform((s) -> {
-            return state.doto((state) -> {
+        return state.start().lazyTransform(s ->
+            state.doto(state -> {
                 final Thread thread = new Thread(() -> {
                     try {
                         doRun(state);
@@ -59,8 +60,8 @@ public class ShellServer implements LifeCycle {
                 thread.setName("remote-shell-server");
                 thread.start();
                 return async.resolved();
-            });
-        });
+            })
+        );
     }
 
     @Override
@@ -68,11 +69,7 @@ public class ShellServer implements LifeCycle {
         return state.stop();
     }
 
-    public ShellServerConnection connect(ShellInterface shell) {
-        return new ShellServerConnection(setupTasks(shell), async);
-    }
-
-    public List<CommandDefinition> getCommands() {
+    public List<CommandDefinition> commands() {
         try (Borrowed<ShellServerState> state = this.state.borrow()) {
             if (!state.isValid()) {
                 throw new IllegalStateException("Server is not ready");
@@ -80,7 +77,7 @@ public class ShellServer implements LifeCycle {
 
             final List<CommandDefinition> commands = new ArrayList<>();
 
-            for (final CoreTaskDefinition def : state.get().commands) {
+            for (final ShellTaskDefinition def : state.get().commands) {
                 commands.add(new CommandDefinition(def.name(), def.aliases(), def.usage()));
             }
 
@@ -88,7 +85,19 @@ public class ShellServer implements LifeCycle {
         }
     }
 
+    public ShellTasks tasks() {
+        try (final Borrowed<ShellServerState> s = state.borrow()) {
+            if (!s.isValid()) {
+                throw new IllegalStateException("Failed to borrow state");
+            }
+
+            return s.get().tasks;
+        }
+    }
+
     void doRun(ShellServerState state) {
+        log.info("Running shell server...");
+
         while (true) {
             final Socket socket;
 
@@ -99,31 +108,10 @@ public class ShellServer implements LifeCycle {
                 break;
             }
 
-            final ShellServerConnection connection = connect(new ShellInterface() {
-            });
-
-            final Thread clientThread = new Thread(new ShellServerClientThread(socket, connection, state.commands));
+            final ShellTasks tasks = tasks();
+            final Thread clientThread = new Thread(new ShellServerClientThread(socket, tasks, state.commands, serializer));
             clientThread.setName(String.format("remote-shell-thread[%s]", socket.getRemoteSocketAddress()));
             clientThread.start();
-        }
-    }
-
-    SortedMap<String, TaskDefinition> setupTasks(ShellInterface shell) {
-        final SortedMap<String, TaskDefinition> tasks = new TreeMap<>();
-
-        final TaskContext ctx = new TaskContext() {
-        };
-
-        try (final Borrowed<ShellServerState> state = this.state.borrow()) {
-            if (!state.isValid()) {
-                throw new IllegalStateException("Failed to borrow state");
-            }
-
-            for (Entry<String, CoreShellTaskDefinition> e : state.get().tasks.entrySet()) {
-                tasks.put(e.getKey(), e.getValue().setup(shell, ctx));
-            }
-
-            return tasks;
         }
     }
 }

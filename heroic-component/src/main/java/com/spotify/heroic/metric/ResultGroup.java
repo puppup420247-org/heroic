@@ -35,7 +35,7 @@ import lombok.Data;
 @Data
 public class ResultGroup {
     final List<TagValues> tags;
-    final MetricTypedGroup group;
+    final MetricCollection group;
 
     /**
      * The interval in milliseconds for which a sample can be expected.
@@ -44,14 +44,14 @@ public class ResultGroup {
     final long cadence;
 
     @JsonCreator
-    public ResultGroup(@JsonProperty("tags") List<TagValues> tags, @JsonProperty("group") MetricTypedGroup group,
+    public ResultGroup(@JsonProperty("tags") List<TagValues> tags, @JsonProperty("group") MetricCollection group,
             @JsonProperty("cadence") Long cadence) {
         this.tags = checkNotNull(tags, "tags");
         this.group = checkNotNull(group, "group");
         this.cadence = checkNotNull(cadence, "cadence");
     }
 
-    public static Function<? super ResultGroup, ? extends ShardedResultGroup> fromResultGroup(final ClusterNode c) {
+    public static Function<? super ResultGroup, ? extends ShardedResultGroup> toShardedResultGroup(final ClusterNode c) {
         return (g) -> new ShardedResultGroup(c.metadata().getTags(), g.getTags(), g.getGroup(), g.getCadence());
     }
 }

@@ -1,6 +1,7 @@
 package com.spotify.heroic;
 
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.Set;
 
 import javax.inject.Named;
@@ -28,12 +29,12 @@ import com.spotify.heroic.filter.FilterJsonSerializer;
 import com.spotify.heroic.filter.FilterJsonSerializerImpl;
 import com.spotify.heroic.metric.Event;
 import com.spotify.heroic.metric.EventSerialization;
+import com.spotify.heroic.metric.MetricCollection;
+import com.spotify.heroic.metric.MetricCollectionSerialization;
 import com.spotify.heroic.metric.MetricGroup;
 import com.spotify.heroic.metric.MetricGroupSerialization;
 import com.spotify.heroic.metric.MetricType;
 import com.spotify.heroic.metric.MetricTypeSerialization;
-import com.spotify.heroic.metric.MetricTypedGroup;
-import com.spotify.heroic.metric.MetricTypedGroupSerialization;
 import com.spotify.heroic.metric.Point;
 import com.spotify.heroic.metric.PointSerialization;
 import com.spotify.heroic.metric.Spread;
@@ -46,12 +47,11 @@ import lombok.RequiredArgsConstructor;
 public class HeroicPrimaryModule extends AbstractModule {
     private final HeroicCore core;
     private final Set<LifeCycle> lifeCycles;
-    private final HeroicConfig config;
     private final InetSocketAddress bindAddress;
 
     private final boolean server;
     private final HeroicReporter reporter;
-    private final HeroicStartupPinger pinger;
+    private final Optional<HeroicStartupPinger> pinger;
 
     @Provides
     @Singleton
@@ -69,12 +69,6 @@ public class HeroicPrimaryModule extends AbstractModule {
     @Singleton
     public Set<LifeCycle> lifecycles() {
         return lifeCycles;
-    }
-
-    @Provides
-    @Singleton
-    public HeroicConfig config() {
-        return config;
     }
 
     @Provides
@@ -129,8 +123,8 @@ public class HeroicPrimaryModule extends AbstractModule {
             bind(HeroicServer.class).in(Scopes.SINGLETON);
         }
 
-        if (pinger != null) {
-            bind(HeroicStartupPinger.class).toInstance(pinger);
+        if (pinger.isPresent()) {
+            bind(HeroicStartupPinger.class).toInstance(pinger.get());
         }
 
         bindListener(new IsSubclassOf(LifeCycle.class), new CollectingTypeListener<LifeCycle>(lifeCycles));
@@ -151,8 +145,8 @@ public class HeroicPrimaryModule extends AbstractModule {
         module.addSerializer(MetricGroup.class, new MetricGroupSerialization.Serializer());
         module.addDeserializer(MetricGroup.class, new MetricGroupSerialization.Deserializer());
 
-        module.addSerializer(MetricTypedGroup.class, new MetricTypedGroupSerialization.Serializer());
-        module.addDeserializer(MetricTypedGroup.class, new MetricTypedGroupSerialization.Deserializer());
+        module.addSerializer(MetricCollection.class, new MetricCollectionSerialization.Serializer());
+        module.addDeserializer(MetricCollection.class, new MetricCollectionSerialization.Deserializer());
 
         module.addSerializer(MetricType.class, new MetricTypeSerialization.Serializer());
         module.addDeserializer(MetricType.class, new MetricTypeSerialization.Deserializer());

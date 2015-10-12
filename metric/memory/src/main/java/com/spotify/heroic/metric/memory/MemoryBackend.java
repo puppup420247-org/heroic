@@ -28,20 +28,24 @@ import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
+import com.google.inject.Inject;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.Groups;
 import com.spotify.heroic.common.LifeCycle;
 import com.spotify.heroic.common.Series;
 import com.spotify.heroic.metric.AbstractMetricBackend;
 import com.spotify.heroic.metric.BackendEntry;
-import com.spotify.heroic.metric.BackendKey;
 import com.spotify.heroic.metric.FetchData;
 import com.spotify.heroic.metric.FetchQuotaWatcher;
 import com.spotify.heroic.metric.Metric;
+import com.spotify.heroic.metric.MetricCollection;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.MetricTypedGroup;
+import com.spotify.heroic.metric.QueryOptions;
+import com.spotify.heroic.metric.QueryTrace;
 import com.spotify.heroic.metric.WriteMetric;
 import com.spotify.heroic.metric.WriteResult;
 
@@ -55,6 +59,8 @@ import lombok.ToString;
  */
 @ToString
 public class MemoryBackend extends AbstractMetricBackend implements LifeCycle {
+    public static final QueryTrace.Identifier FETCH = QueryTrace.identifier(MemoryBackend.class, "fetch");
+
     private static final List<BackendEntry> EMPTY_ENTRIES = new ArrayList<>();
 
     private final ConcurrentMap<MemoryKey, NavigableMap<Long, Metric>> storage = new ConcurrentHashMap<>();
@@ -64,6 +70,7 @@ public class MemoryBackend extends AbstractMetricBackend implements LifeCycle {
     private final AsyncFramework async;
     private final Groups groups;
 
+    @Inject
     public MemoryBackend(final AsyncFramework async, final Groups groups) {
         super(async);
         this.async = async;
@@ -112,17 +119,13 @@ public class MemoryBackend extends AbstractMetricBackend implements LifeCycle {
 
     @Override
     public AsyncFuture<FetchData> fetch(MetricType source, Series series, DateRange range,
-            FetchQuotaWatcher watcher) {
-        final long start = System.nanoTime();
+            FetchQuotaWatcher watcher, QueryOptions options) {
+        final Stopwatch w = Stopwatch.createStarted();
         final MemoryKey key = new MemoryKey(source, series);
-        final List<MetricTypedGroup> groups = doFetch(key, range);
-        final ImmutableList<Long> times = ImmutableList.of(System.nanoTime() - start);
-        return async.resolved(new FetchData(series, times, groups));
-    }
-
-    @Override
-    public AsyncFuture<List<BackendKey>> keys(BackendKey start, BackendKey end, int limit) {
-        return async.resolved((List<BackendKey>) new ArrayList<BackendKey>());
+        final List<MetricCollection> groups = doFetch(key, range);
+        final QueryTrace trace = new QueryTrace(FETCH, w.elapsed(TimeUnit.NANOSECONDS));
+        final ImmutableList<Long> times = ImmutableList.of(trace.getElapsed());
+        return async.resolved(new FetchData(series, times, groups, trace));
     }
 
     @Override
@@ -142,7 +145,7 @@ public class MemoryBackend extends AbstractMetricBackend implements LifeCycle {
     }
 
     private void writeOne(final List<Long> times, final WriteMetric write, final long start) {
-        for (final MetricTypedGroup g : write.getGroups()) {
+        for (final MetricCollection g : write.getGroups()) {
             final MemoryKey key = new MemoryKey(g.getType(), write.getSeries());
             final NavigableMap<Long, Metric> tree = getOrCreate(key);
 
@@ -156,16 +159,16 @@ public class MemoryBackend extends AbstractMetricBackend implements LifeCycle {
         times.add(System.nanoTime() - start);
     }
 
-    private List<MetricTypedGroup> doFetch(final MemoryKey key, DateRange range) {
+    private List<MetricCollection> doFetch(final MemoryKey key, DateRange range) {
         final NavigableMap<Long, Metric> tree = storage.get(key);
 
         if (tree == null) {
-            return ImmutableList.of(new MetricTypedGroup(key.getSource(), ImmutableList.of()));
+            return ImmutableList.of(MetricCollection.build(key.getSource(), ImmutableList.of()));
         }
 
         synchronized (tree) {
             final Iterable<Metric> data = tree.subMap(range.getStart(), range.getEnd()).values();
-            return ImmutableList.of(new MetricTypedGroup(key.getSource(), ImmutableList.copyOf(data)));
+            return ImmutableList.of(MetricCollection.build(key.getSource(), ImmutableList.copyOf(data)));
         }
     }
 

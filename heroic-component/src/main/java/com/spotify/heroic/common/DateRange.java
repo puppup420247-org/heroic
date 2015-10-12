@@ -40,12 +40,17 @@ import eu.toolchain.serializer.AutoSerialize;
 @Data
 @EqualsAndHashCode(of = { "start", "end" })
 public class DateRange implements Comparable<DateRange> {
+    private static final FastDateFormat FORMAT = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss.SSS");
+
     private final long start;
     private final long end;
 
     public DateRange(long start, long end) {
         checkArgument(start >= 0, "start must be a positive number");
-        checkArgument(end >= start, "end must be equal to, or come after start");
+
+        if (end < start) {
+            throw new IllegalArgumentException(String.format("start (%d) must come before end (%d)", start, end));
+        }
 
         this.start = start;
         this.end = end;
@@ -148,14 +153,11 @@ public class DateRange implements Comparable<DateRange> {
         return new DateRange(Math.max(start + extent, 0), Math.max(end + extent, 0));
     }
 
-    private static final FastDateFormat format = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss.SSS");
-
     @Override
     public String toString() {
         final Date start = new Date(this.start);
         final Date end = new Date(this.end);
-        return "DateRange(start=" + this.start + ", end=" + this.end + ", " + format.format(start) + "-"
-                + format.format(end) + ")";
+        return "{" + FORMAT.format(start) + "}-{" + FORMAT.format(end) + "}";
     }
 
     @JsonCreator
