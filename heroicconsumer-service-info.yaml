@@ -32,3 +32,6 @@ facts:
   
   slack_channel: monitoring-users
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
+
+  maintainers:
+    - the-autons
