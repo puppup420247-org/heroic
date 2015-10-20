@@ -21,7 +21,9 @@ facts:
   docs:
     - http://docs.for.heroicconsumer.com
   
-  role: heroicconsumer
+  role: 
+    - heroicconsumer
+    - heroicconsumercs
   
   tags:
     - monitoring
