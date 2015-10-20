@@ -1,7 +1,8 @@
 metrics:
   backends:
     - type: datastax
-      group: heroic
+      schema:
+        type: legacy
       seeds:
         - gcb2-heroiccassandra-a1.gcb2.spotify.net
         - gcb2-heroiccassandra-a2.gcb2.spotify.net
