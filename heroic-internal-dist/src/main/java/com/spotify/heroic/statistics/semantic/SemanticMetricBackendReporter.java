@@ -18,6 +18,7 @@ public class SemanticMetricBackendReporter implements MetricBackendReporter {
     private final MetricId base;
     private final SemanticMetricRegistry registry;
     private final FutureReporter writeBatch;
+    private final FutureReporter write;
     private final FutureReporter fetch;
 
     public SemanticMetricBackendReporter(SemanticMetricRegistry registry, String id) {
@@ -26,7 +27,13 @@ public class SemanticMetricBackendReporter implements MetricBackendReporter {
         this.base = MetricId.build().tagged("component", COMPONENT, "id", id);
 
         this.writeBatch = new SemanticFutureReporter(registry, base.tagged("what", "write-batch", "unit", Units.WRITE));
+        this.write = new SemanticFutureReporter(registry, base.tagged("what", "write", "unit", Units.WRITE));
         this.fetch = new SemanticFutureReporter(registry, base.tagged("what", "fetch", "unit", Units.READ));
+    }
+
+    @Override
+    public Context reportWrite() {
+        return write.setup();
     }
 
     @Override
