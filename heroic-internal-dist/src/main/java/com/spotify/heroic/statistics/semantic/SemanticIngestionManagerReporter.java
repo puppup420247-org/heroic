@@ -21,7 +21,7 @@ public class SemanticIngestionManagerReporter implements IngestionManagerReporte
         final MetricId id = MetricId.build().tagged("component", COMPONENT);
         this.metadataWrite = new SemanticFutureReporter(registry, id.tagged("what", "metadata-write", "unit",
                 Units.FAILURE));
-        this.concurrentWritesCounter = registry.counter(id.tagged("what", "concurrentWrites", "unit", Units.WRITE));
+        this.concurrentWritesCounter = registry.counter(id.tagged("what", "concurrent-writes", "unit", Units.WRITE));
     }
 
     @Override
