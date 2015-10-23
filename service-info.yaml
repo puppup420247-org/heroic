@@ -23,6 +23,7 @@ facts:
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
   role:
     - heroic
+    - heroicapics
     - heroicbigtable
   
   slack_channel: monitoring-users
