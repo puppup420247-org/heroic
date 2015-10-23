@@ -24,7 +24,6 @@ facts:
   role:
     - heroic
     - heroicapics
-    - heroicbigtable
   
   slack_channel: monitoring-users
   
