@@ -27,3 +27,6 @@ facts:
     - heroicbigtable
   
   slack_channel: monitoring-users
+  
+  maintainers:
+    - the-autons
