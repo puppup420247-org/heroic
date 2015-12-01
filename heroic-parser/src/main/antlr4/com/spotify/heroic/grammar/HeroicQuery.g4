@@ -7,108 +7,48 @@ queries
     : (query QuerySeparator)* query EOF
     ;
 
+expressionOnly
+    : expr EOF
+    ;
+
+filterOnly
+    : filter EOF
+    ;
+
 query
-    : select From from (Where filter)? (GroupBy groupBy)?
+    : select from? where?
     ;
 
-eqExpr
-    : valueExpr Eq valueExpr
+select
+    : All  # SelectAll
+    | expr # SelectAggregation
     ;
 
-notEqExpr
-    : valueExpr NotEq valueExpr
+from
+    : From Identifier sourceRange?
     ;
 
-keyEqExpr
-    : SKey Eq valueExpr
-    ;
-
-keyNotEqExpr
-    : SKey NotEq valueExpr
-    ;
-
-hasExpr
-    : Plus valueExpr
-    ;
-
-prefixExpr
-    : valueExpr Prefix valueExpr
-    ;
-
-notPrefixExpr
-    : valueExpr NotPrefix valueExpr
-    ;
-
-regexExpr
-    : valueExpr Regex valueExpr
-    ;
-
-notInExpr
-    : valueExpr Not In valueExpr
-    ;
-
-booleanExpr
-    : True
-    | False
-    ;
-
-inExpr
-    : valueExpr In valueExpr
-    ;
-
-notRegexExpr
-    : valueExpr NotRegex valueExpr
-    ;
-
-notExpr
-    : Bang filterExprs
-    ;
-
-filterExpr
-    : eqExpr
-    | notEqExpr
-    | keyEqExpr
-    | keyNotEqExpr
-    | hasExpr
-    | prefixExpr
-    | notPrefixExpr
-    | regexExpr
-    | notRegexExpr
-    | inExpr
-    | notInExpr
-    | booleanExpr
-    ;
-
-groupExpr
-    : LParen filterExprs RParen
-    ;
-
-filterExprs
-    : filterExpr
-    | notExpr
-    | groupExpr
-    | <assoc=left> filterExprs And filterExprs
-    | <assoc=left> filterExprs Or filterExprs
+where
+    : Where filter
     ;
 
 filter
-    : filterExprs
-    ;
-
-listValues
-    : valueExpr (Colon valueExpr)*
-    ;
-
-groupBy
-    : listValues
-    ;
-
-list
-    : LBracket listValues? RBracket
-    ;
-
-keyValue
-    : Identifier Eq valueExpr
+    : LParen filter RParen #FilterPrecedence
+    | filter Or filter     #FilterOr
+    | filter And filter    #FilterAnd
+    | expr Eq expr         #FilterEq
+    | expr NotEq expr      #FilterNotEq
+    | SKey Eq expr         #FilterKeyEq
+    | SKey NotEq expr      #FilterKeyNotEq
+    | Plus expr            #FilterHas
+    | expr Prefix expr     #FilterPrefix
+    | expr NotPrefix expr  #FilterNotPrefix
+    | expr Regex expr      #FilterRegex
+    | expr NotRegex expr   #FilterNotRegex
+    | expr In expr         #FilterIn
+    | expr Not In expr     #FilterNotIn
+    | (True | False)       #FilterBoolean
+    | Bang filter          #FilterNot
     ;
 
 string
@@ -117,67 +57,30 @@ string
     | Identifier
     ;
 
-aggregationArgs
-    : listValues (Colon keyValue)*
-    | keyValue (Colon keyValue)*
+keyValue
+    : Identifier Eq expr
     ;
 
-aggregation
-    : string LParen aggregationArgs? RParen
+expr
+    : LParen expr RParen                                                  #ExpressionPrecedence
+    | expr Minus expr                                                     #ExpressionMinus
+    | expr Plus expr                                                      #ExpressionPlus
+    | LBracket (expr (Comma expr)*)? RBracket                             #ExpressionList
+    | LCurly (expr (Comma expr)*)? RCurly                                 #ExpressionList
+    | SNow                                                                #ExpressionNow
+    | Duration                                                            #ExpressionDuration
+    | Integer                                                             #ExpressionInteger
+    | string                                                              #ExpressionString
+    | expr By expr                                                        #AggregationBy
+    | expr By All                                                         #AggregationByAll
+    | expr (Pipe expr)+                                                   #AggregationPipe
+    | Identifier (LParen (expr (Comma expr)*)? (Comma keyValue)* RParen)? #Aggregation
     ;
-
-placeholder
-    : Placeholder
-    ;
-
-value
-    : now
-    | diff
-    | placeholder
-    | aggregation
-    | list
-    | integer
-    | string
-    ;
-
-diff
-    : Diff
-    ;
-
-now
-    : SNow
-    ;
-
-integer: Integer ;
-
-groupValueExpr
-    : LParen valueExpr RParen ;
-
-valueExpr
-    : value
-    | groupValueExpr
-    |<assoc=right> valueExpr Plus valueExpr
-    |<assoc=right> valueExpr Minus valueExpr
-    ;
-
-select
-    : All
-    | valueExpr
-    ;
-
-relative
-    : LParen valueExpr RParen
-    ;
-
-absolute
-    : LParen valueExpr Colon valueExpr RParen ;
 
 sourceRange
-    : relative
-    | absolute
+    : LParen expr RParen            #SourceRangeRelative
+    | LParen expr Comma expr RParen #SourceRangeAbsolute
     ;
-
-from : Identifier sourceRange? ;
 
 // keywords (must come before SimpleString!)
 All : '*' ;
@@ -188,8 +91,6 @@ False : 'false' ;
 
 Where : 'where' ;
 
-GroupBy : 'group by' ;
-
 From : 'from' ;
 
 Or : 'or' ;
@@ -199,6 +100,8 @@ And : 'and' ;
 Not : 'not' ;
 
 In : 'in' ;
+
+By : 'by' ;
 
 Plus : '+' ;
 
@@ -220,13 +123,13 @@ NotEq : '!=' ;
 
 QuerySeparator : ';' ;
 
-Colon : ',' ;
+Comma : ',' ;
 
 LParen : '(' ;
 
 RParen : ')' ;
 
-LCurly : '}' ;
+LCurly : '{' ;
 
 RCurly : '}' ;
 
@@ -234,7 +137,7 @@ LBracket : '[' ;
 
 RBracket : ']' ;
 
-Placeholder : LCurly Identifier RCurly ;
+Pipe : '|' ;
 
 QuotedString : '"' StringCharacters? '"' ;
 
@@ -252,14 +155,14 @@ Unit
     : 'ms'
     | 's'
     | 'm'
-    | 'H'
+    | 'H' | 'h'
     | 'd'
     | 'w'
     | 'M'
     | 'y'
     ;
 
-Diff
+Duration
     : Integer Unit
     ;
 
@@ -290,4 +193,6 @@ WS : [ \t\n]+ -> skip ;
 UnterminatedQutoedString : '"' StringCharacters? ;
 
 // match everything else so that we can handle errors in the parser.
-ErrorChar : . ;
+ErrorChar
+    : .
+    ;

@@ -23,6 +23,7 @@ package com.spotify.heroic.filter.impl;
 
 import com.spotify.heroic.common.Series;
 import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.grammar.QueryParser;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -65,10 +66,16 @@ public class HasTagFilterImpl implements Filter.HasTag {
 
     @Override
     public int compareTo(Filter o) {
-        if (!Filter.HasTag.class.isAssignableFrom(o.getClass()))
+        if (!Filter.HasTag.class.isAssignableFrom(o.getClass())) {
             return operator().compareTo(o.operator());
+        }
 
         final Filter.HasTag other = (Filter.HasTag) o;
         return FilterComparatorUtils.stringCompare(this.tag, other.first());
+    }
+
+    @Override
+    public String toDSL() {
+        return "+" + QueryParser.escapeString(tag);
     }
 }

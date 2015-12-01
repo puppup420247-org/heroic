@@ -21,42 +21,45 @@
 
 package com.spotify.heroic.aggregation;
 
-import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
 
-import com.spotify.heroic.common.DateRange;
-
-public interface Aggregation {
-    public static final String SAMPLE_SIZE = "Aggregation.sampleSize";
+/**
+ * Describes an aggregation.
+ *
+ * Aggregations are responsible for down-sampling time-series data into more compact representations
+ * that are easier to reason about.
+ *
+ * All members must be fully thread-safe. This class describes and contains the configuration for a
+ * given aggregation, in order to perform one you would use the {@link #apply(AggregationContext)}
+ * method which will return an instance of the current aggregation.
+ *
+ * @see AggregationInstance
+ * @author udoprog
+ */
+public interface Aggregation extends Function<AggregationContext, AggregationInstance> {
+    /**
+     * Get the size of the aggregation.
+     *
+     * The size is the space of time between subsequent samples.
+     *
+     * @return The size if available, otherwise an empty result.
+     */
+    Optional<Long> size();
 
     /**
-     * Estimate number of points this aggregation will produce.
+     * Get the extent of the aggregation.
      *
-     * @param range Range to perform aggregation over.
-     * @return Number of datapoints required for aggregation, or {@code -1} if not known.
+     * The extent is the space of time in milliseconds that an aggregation takes samples.
+     *
+     * @return The extent if available, otherwise an empty result.
      */
-    public long estimate(DateRange range);
+    Optional<Long> extent();
 
     /**
-     * Get a hint of the extent this aggregation uses.
+     * Convert to Heroic DSL.
      *
-     * This value is used to determine at what range the provided range should be rounded to, otherwise it might cause
-     * incomplete sampling periods.
-     *
-     * @return The relevant extent.
+     * @return A DSL version of the current aggregation.
      */
-    public long extent();
-
-    /**
-     * Get the cadence of the current aggregation.
-     *
-     * The cadence indicates the interval in milliseconds that samples can be expected.
-     *
-     * @return The cadence of the resulting aggregation, or {@code 0} if this is unknown.
-     */
-    public long cadence();
-
-    /**
-     * Traverse the possible aggregations and build the necessary graph out of them.
-     */
-    public AggregationTraversal session(List<AggregationState> states, DateRange range);
+    String toDSL();
 }

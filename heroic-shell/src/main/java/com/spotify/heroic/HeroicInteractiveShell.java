@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic;
 
 import java.io.File;
@@ -152,8 +173,8 @@ public class HeroicInteractiveShell {
         }
     }
 
-    void runTask(List<String> command, final ShellIO io, final CoreInterface core) throws Exception,
-            IOException {
+    void runTask(List<String> command, final ShellIO io, final CoreInterface core)
+            throws Exception, IOException {
         final AsyncFuture<Void> t;
 
         try {
@@ -184,7 +205,8 @@ public class HeroicInteractiveShell {
         return;
     }
 
-    Void awaitFinished(final AsyncFuture<Void> t) throws InterruptedException, ExecutionException, TimeoutException {
+    Void awaitFinished(final AsyncFuture<Void> t)
+            throws InterruptedException, ExecutionException, TimeoutException {
         if (timeout > 0) {
             return t.get(timeout, TimeUnit.SECONDS);
         }
@@ -193,7 +215,8 @@ public class HeroicInteractiveShell {
         return t.get();
     }
 
-    public static HeroicInteractiveShell buildInstance(final List<CommandDefinition> commands, FileInputStream input) throws Exception {
+    public static HeroicInteractiveShell buildInstance(final List<CommandDefinition> commands,
+            FileInputStream input) throws Exception {
         final ConsoleReader reader = new ConsoleReader("heroicsh", input, System.out, null);
 
         final FileHistory history = setupHistory(reader);
@@ -203,8 +226,8 @@ public class HeroicInteractiveShell {
         }
 
         reader.setPrompt(String.format("heroic> "));
-        reader.addCompleter(new StringsCompleter(ImmutableList.copyOf(commands.stream().map((d) -> d.getName())
-                .iterator())));
+        reader.addCompleter(new StringsCompleter(
+                ImmutableList.copyOf(commands.stream().map((d) -> d.getName()).iterator())));
         reader.setHandleUserInterrupt(true);
 
         return new HeroicInteractiveShell(reader, commands, history);

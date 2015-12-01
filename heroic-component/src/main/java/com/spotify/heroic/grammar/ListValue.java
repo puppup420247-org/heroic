@@ -25,15 +25,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @ValueName("list")
 @Data
+@EqualsAndHashCode(exclude = {"c"})
 public final class ListValue implements Value {
-    private final List<Value> list;
+    private final List<? extends Value> list;
+    private final Context c;
 
     @Override
-    public Value sub(Value other) {
-        throw new IllegalArgumentException("list does not support subtraction");
+    public Context context() {
+        return c;
     }
 
     @Override
@@ -42,28 +45,30 @@ public final class ListValue implements Value {
         final ArrayList<Value> list = new ArrayList<Value>();
         list.addAll(this.list);
         list.addAll(o.list);
-        return new ListValue(list);
+        return new ListValue(list, c.join(other.context()));
     }
 
     public String toString() {
-        return "<list:" + list + ">";
+        return list.toString();
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(T to) {
-        if (to instanceof ListValue)
+        if (to instanceof ListValue) {
             return (T) this;
+        }
 
-        throw new ValueCastException(this, to);
+        throw c.castError(this, to);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(Class<T> to) {
-        if (to.isAssignableFrom(ListValue.class))
+        if (to.isAssignableFrom(ListValue.class)) {
             return (T) this;
+        }
 
-        throw new ValueTypeCastException(this, to);
+        throw c.castError(this, to);
     }
 }

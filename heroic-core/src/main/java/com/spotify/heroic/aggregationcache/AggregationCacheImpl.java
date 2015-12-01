@@ -27,10 +27,7 @@ import java.util.Map;
 
 import javax.inject.Inject;
 
-import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
-
-import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.aggregation.AggregationInstance;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.metric.Point;
@@ -38,6 +35,8 @@ import com.spotify.heroic.statistics.AggregationCacheReporter;
 
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.Transform;
+import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 
 @NoArgsConstructor
 public class AggregationCacheImpl implements AggregationCache {
@@ -48,7 +47,8 @@ public class AggregationCacheImpl implements AggregationCache {
     private AggregationCacheReporter reporter;
 
     @RequiredArgsConstructor
-    private static final class BackendCacheGetHandle implements Transform<CacheBackendGetResult, CacheQueryResult> {
+    private static final class BackendCacheGetHandle
+            implements Transform<CacheBackendGetResult, CacheQueryResult> {
         private final AggregationCacheReporter reporter;
         private final DateRange range;
 
@@ -56,7 +56,7 @@ public class AggregationCacheImpl implements AggregationCache {
         public CacheQueryResult transform(CacheBackendGetResult result) throws Exception {
             final CacheBackendKey key = result.getKey();
 
-            final long width = key.getAggregation().extent();
+            final long width = key.getAggregation().cadence();
 
             final List<DateRange> misses = new ArrayList<DateRange>();
 
@@ -73,14 +73,16 @@ public class AggregationCacheImpl implements AggregationCache {
             long current = range.getStart();
 
             for (final Point d : cached) {
-                if (current + width != d.getTimestamp() && current < d.getTimestamp())
+                if (current + width != d.getTimestamp() && current < d.getTimestamp()) {
                     misses.add(range.modify(current, d.getTimestamp()));
+                }
 
                 current = d.getTimestamp();
             }
 
-            if (current < end)
+            if (current < end) {
                 misses.add(range.modify(current, end));
+            }
 
             reporter.reportGetMiss(misses.size());
             return new CacheQueryResult(key, range, cached, misses);
@@ -88,7 +90,8 @@ public class AggregationCacheImpl implements AggregationCache {
     }
 
     @RequiredArgsConstructor
-    private final class BackendCachePutHandle implements Transform<CacheBackendPutResult, CachePutResult> {
+    private final class BackendCachePutHandle
+            implements Transform<CacheBackendPutResult, CachePutResult> {
         @Override
         public CachePutResult transform(CacheBackendPutResult result) throws Exception {
             return new CachePutResult();
@@ -101,10 +104,11 @@ public class AggregationCacheImpl implements AggregationCache {
     }
 
     @Override
-    public AsyncFuture<CacheQueryResult> get(Filter filter, Map<String, String> group, final Aggregation aggregation,
-            DateRange range) throws CacheOperationException {
-        if (!isConfigured())
+    public AsyncFuture<CacheQueryResult> get(Filter filter, Map<String, String> group,
+            final AggregationInstance aggregation, DateRange range) throws CacheOperationException {
+        if (!isConfigured()) {
             throw new CacheOperationException("Cache backend is not configured");
+        }
 
         final CacheBackendKey key = new CacheBackendKey(filter, group, aggregation);
 
@@ -112,13 +116,16 @@ public class AggregationCacheImpl implements AggregationCache {
     }
 
     @Override
-    public AsyncFuture<CachePutResult> put(Filter filter, Map<String, String> group, Aggregation aggregation,
-            List<Point> datapoints) throws CacheOperationException {
+    public AsyncFuture<CachePutResult> put(Filter filter, Map<String, String> group,
+            AggregationInstance aggregation, List<Point> datapoints)
+                    throws CacheOperationException {
         final CacheBackendKey key = new CacheBackendKey(filter, group, aggregation);
 
-        if (!isConfigured())
+        if (!isConfigured()) {
             throw new CacheOperationException("Cache backend is not configured");
+        }
 
-        return backend.put(key, datapoints).directTransform(new BackendCachePutHandle()).onDone(reporter.reportPut());
+        return backend.put(key, datapoints).directTransform(new BackendCachePutHandle())
+                .onDone(reporter.reportPut());
     }
 }

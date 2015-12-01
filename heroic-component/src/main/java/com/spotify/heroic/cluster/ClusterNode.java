@@ -23,7 +23,8 @@ package com.spotify.heroic.cluster;
 
 import java.util.List;
 
-import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.aggregation.AggregationInstance;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.common.Series;
@@ -34,7 +35,6 @@ import com.spotify.heroic.metadata.FindKeys;
 import com.spotify.heroic.metadata.FindSeries;
 import com.spotify.heroic.metadata.FindTags;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.metric.ResultGroups;
 import com.spotify.heroic.metric.WriteMetric;
 import com.spotify.heroic.metric.WriteResult;
@@ -48,40 +48,42 @@ import com.spotify.heroic.suggest.TagValuesSuggest;
 import eu.toolchain.async.AsyncFuture;
 
 public interface ClusterNode {
-    public NodeMetadata metadata();
+    NodeMetadata metadata();
 
-    public AsyncFuture<Void> close();
+    AsyncFuture<Void> close();
 
-    public Group useGroup(String group);
+    Group useGroup(String group);
 
     public interface Group {
-        public ClusterNode node();
+        ClusterNode node();
 
-        public AsyncFuture<ResultGroups> query(MetricType source, Filter filter,
-                DateRange range, Aggregation aggregation, QueryOptions options);
+        AsyncFuture<ResultGroups> query(MetricType source, Filter filter, DateRange range,
+                AggregationInstance aggregation, QueryOptions options);
 
-        public AsyncFuture<FindTags> findTags(RangeFilter filter);
+        AsyncFuture<FindTags> findTags(RangeFilter filter);
 
-        public AsyncFuture<FindKeys> findKeys(RangeFilter filter);
+        AsyncFuture<FindKeys> findKeys(RangeFilter filter);
 
-        public AsyncFuture<FindSeries> findSeries(RangeFilter filter);
+        AsyncFuture<FindSeries> findSeries(RangeFilter filter);
 
-        public AsyncFuture<DeleteSeries> deleteSeries(RangeFilter filter);
+        AsyncFuture<DeleteSeries> deleteSeries(RangeFilter filter);
 
-        public AsyncFuture<CountSeries> countSeries(RangeFilter filter);
+        AsyncFuture<CountSeries> countSeries(RangeFilter filter);
 
-        public AsyncFuture<TagKeyCount> tagKeyCount(RangeFilter filter);
+        AsyncFuture<TagKeyCount> tagKeyCount(RangeFilter filter);
 
-        public AsyncFuture<TagSuggest> tagSuggest(RangeFilter filter, MatchOptions options, String key, String value);
+        AsyncFuture<TagSuggest> tagSuggest(RangeFilter filter, MatchOptions options, String key,
+                String value);
 
-        public AsyncFuture<KeySuggest> keySuggest(RangeFilter filter, MatchOptions options, String key);
+        AsyncFuture<KeySuggest> keySuggest(RangeFilter filter, MatchOptions options, String key);
 
-        public AsyncFuture<TagValuesSuggest> tagValuesSuggest(RangeFilter filter, List<String> exclude, int groupLimit);
+        AsyncFuture<TagValuesSuggest> tagValuesSuggest(RangeFilter filter, List<String> exclude,
+                int groupLimit);
 
-        public AsyncFuture<TagValueSuggest> tagValueSuggest(RangeFilter filter, String key);
+        AsyncFuture<TagValueSuggest> tagValueSuggest(RangeFilter filter, String key);
 
-        public AsyncFuture<WriteResult> writeSeries(DateRange range, Series series);
+        AsyncFuture<WriteResult> writeSeries(DateRange range, Series series);
 
-        public AsyncFuture<WriteResult> writeMetric(WriteMetric write);
+        AsyncFuture<WriteResult> writeMetric(WriteMetric write);
     }
 }

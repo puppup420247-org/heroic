@@ -23,22 +23,25 @@ package com.spotify.heroic.profile;
 
 import static com.spotify.heroic.ParameterSpecification.parameter;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.Callable;
 
+import com.datastax.driver.core.ConsistencyLevel;
+import com.datastax.driver.core.policies.RetryPolicy;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.spotify.heroic.ExtraParameters;
 import com.spotify.heroic.HeroicConfig;
 import com.spotify.heroic.ParameterSpecification;
-import com.spotify.heroic.ExtraParameters;
 import com.spotify.heroic.metric.MetricManagerModule;
 import com.spotify.heroic.metric.MetricModule;
+import com.spotify.heroic.metric.datastax.AggressiveRetryPolicy;
 import com.spotify.heroic.metric.datastax.DatastaxMetricModule;
 import com.spotify.heroic.metric.datastax.schema.SchemaModule;
 import com.spotify.heroic.metric.datastax.schema.legacy.LegacySchemaModule;
@@ -56,10 +59,11 @@ public class CassandraProfile extends HeroicProfileBase {
 
     @Override
     public HeroicConfig.Builder build(final ExtraParameters params) throws Exception {
-        final boolean configure = params.contains("cassandra.configure");
-        final Optional<String> type = params.get("cassandra.type");
+        final DatastaxMetricModule.Builder module = DatastaxMetricModule.builder();
 
-        final SchemaModule schema;
+        module.configure(params.contains("cassandra.configure"));
+
+        final Optional<String> type = params.get("cassandra.type");
 
         if (type.isPresent()) {
             final Callable<SchemaModule> builder;
@@ -68,24 +72,27 @@ public class CassandraProfile extends HeroicProfileBase {
                 throw new IllegalArgumentException("Unknown cassandra.type: " + type.get());
             }
 
-            schema = builder.call();
+            module.schema(builder.call());
         } else {
-            schema = LegacySchemaModule.builder().build();
+            module.schema(LegacySchemaModule.builder().build());
         }
 
-        final Set<String> seeds = params.get("cassandra.seeds").map(s -> ImmutableSet.copyOf(splitter.split(s)))
-                .orElseGet(() -> ImmutableSet.of("localhost"));
+        module.seeds(params.get("cassandra.seeds").map(s -> ImmutableSet.copyOf(splitter.split(s)))
+                .orElseGet(() -> ImmutableSet.of("localhost")));
+
+        params.getInteger("cassandra.fetchSize").ifPresent(module::fetchSize);
+        params.getDuration("cassandra.readTimeout").ifPresent(module::readTimeout);
+        params.get("cassandra.consistencyLevel").map(ConsistencyLevel::valueOf)
+                .ifPresent(module::consistencyLevel);
+        params.get("cassandra.retryPolicy").map(policy -> this.convertRetryPolicy(policy, params))
+                .ifPresent(module::retryPolicy);
 
         // @formatter:off
         return HeroicConfig.builder()
             .metric(
                 MetricManagerModule.builder()
                     .backends(ImmutableList.<MetricModule>of(
-                        DatastaxMetricModule.builder()
-                        .seeds(seeds)
-                        .configure(configure)
-                        .schema(schema)
-                        .build()
+                        module.build()
                     ))
             );
         // @formatter:on
@@ -96,6 +103,21 @@ public class CassandraProfile extends HeroicProfileBase {
         return "Configures a metric backend for Cassandra";
     }
 
+    public static final int DEFAULT_NUM_RETRIES = 10;
+    public static final int DEFAULT_ROTATE_HOST = 2;
+
+    private RetryPolicy convertRetryPolicy(final String policyName, final ExtraParameters params) {
+        if ("aggressive".equals(policyName)) {
+            final int numRetries =
+                    params.getInteger("cassandra.numRetries").orElse(DEFAULT_NUM_RETRIES);
+            final int rotateHost =
+                    params.getInteger("cassandra.rotateHost").orElse(DEFAULT_ROTATE_HOST);
+            return new AggressiveRetryPolicy(numRetries, rotateHost);
+        }
+
+        throw new IllegalArgumentException("Not a valid retry policy: " + policyName);
+    }
+
     private static final Joiner parameters = Joiner.on(", ");
 
     @Override
@@ -104,7 +126,13 @@ public class CassandraProfile extends HeroicProfileBase {
         return ImmutableList.of(
             parameter("cassandra.configure", "If set, will cause the cluster to be automatically configured"),
             parameter("cassandra.type", "Type of backend to use, valid values are: " + parameters.join(types.keySet()), "<type>"),
-            parameter("cassandra.seeds", "Seeds to use when configuring backend", "<host>[:<port>][,..]")
+            parameter("cassandra.seeds", "Seeds to use when configuring backend", "<host>[:<port>][,..]"),
+            parameter("cassandra.fetchSize", "The number of results to fetch per batch", "<int>"),
+            parameter("cassandra.consistencyLevel", "The default consistency level to use",
+                    parameters.join(Arrays.stream(ConsistencyLevel.values()).map(cl -> cl.name()).iterator())),
+            parameter("cassandra.retryPolicy", "The retry policy to use (useful when migrating data)", "aggressive"),
+            parameter("cassandra.numRetries", "The number of retries to attempt for the current retry policy", "<int>"),
+            parameter("cassandra.rotateHost", "The number of retries to attempt before rotating host for the current retry policy", "<int>")
         );
         // @formatter:on
     }

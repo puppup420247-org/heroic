@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -46,11 +45,12 @@ import com.spotify.heroic.common.ReflectionUtils;
 import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.consumer.ConsumerModule;
 import com.spotify.heroic.consumer.ConsumerSchema;
+import com.spotify.heroic.ingestion.IngestionGroup;
+import com.spotify.heroic.ingestion.IngestionManager;
 import com.spotify.heroic.statistics.ConsumerReporter;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.LazyTransform;
 import eu.toolchain.async.Managed;
 import eu.toolchain.async.ManagedSetup;
 import kafka.consumer.ConsumerConfig;
@@ -82,34 +82,42 @@ public class KafkaConsumerModule implements ConsumerModule {
 
         return new PrivateModule() {
             @Provides
-            public Managed<Connection> connection(final AsyncFramework async, final Consumer consumer) {
+            public Managed<Connection> connection(final AsyncFramework async,
+                    final Consumer consumer, final IngestionManager ingestionManager) {
                 return async.managed(new ManagedSetup<Connection>() {
                     @Override
                     public AsyncFuture<Connection> construct() {
-                        return async.call(new Callable<Connection>() {
-                            @Override
-                            public Connection call() throws Exception {
-                                log.info("Starting");
-                                final Properties properties = new Properties();
-                                properties.putAll(config);
+                        // XXX: make target group configurable?
+                        final IngestionGroup ingestion = ingestionManager.useDefaultGroup();
 
-                                final ConsumerConfig config = new ConsumerConfig(properties);
-                                final ConsumerConnector connector = kafka.consumer.Consumer
-                                        .createJavaConsumerConnector(config);
+                        if (ingestion.isEmpty()) {
+                            throw new IllegalStateException(
+                                    "No backends are part of the ingestion group");
+                        }
 
-                                final Map<String, Integer> streamsMap = makeStreams();
+                        return async.call(() -> {
+                            log.info("Starting");
+                            final Properties properties = new Properties();
+                            properties.putAll(config);
 
-                                final Map<String, List<KafkaStream<byte[], byte[]>>> streams = connector
-                                        .createMessageStreams(streamsMap);
+                            final ConsumerConfig config = new ConsumerConfig(properties);
+                            final ConsumerConnector connector =
+                                    kafka.consumer.Consumer.createJavaConsumerConnector(config);
 
-                                final List<ConsumerThread> threads = buildThreads(reporter, consumer, streams);
+                            final Map<String, Integer> streamsMap = makeStreams();
 
-                                for (final ConsumerThread t : threads)
-                                    t.start();
+                            final Map<String, List<KafkaStream<byte[], byte[]>>> streams =
+                                    connector.createMessageStreams(streamsMap);
 
-                                total.set(threads.size());
-                                return new Connection(connector, threads);
+                            final List<ConsumerThread> threads =
+                                    buildThreads(async, reporter, ingestion, streams);
+
+                            for (final ConsumerThread t : threads) {
+                                t.start();
                             }
+
+                            total.set(threads.size());
+                            return new Connection(connector, threads);
                         });
                     }
 
@@ -119,8 +127,8 @@ public class KafkaConsumerModule implements ConsumerModule {
 
                         total.set(0);
 
-                        final List<AsyncFuture<Void>> shutdown = ImmutableList
-                                .copyOf(value.getThreads().stream().map(ConsumerThread::shutdown).iterator());
+                        final List<AsyncFuture<Void>> shutdown = ImmutableList.copyOf(value
+                                .getThreads().stream().map(ConsumerThread::shutdown).iterator());
 
                         return async.collectAndDiscard(shutdown);
                     }
@@ -130,31 +138,11 @@ public class KafkaConsumerModule implements ConsumerModule {
                     private Map<String, Integer> makeStreams() {
                         final Map<String, Integer> streamsMap = new HashMap<String, Integer>();
 
-                        for (final String topic : topics)
+                        for (final String topic : topics) {
                             streamsMap.put(topic, threads);
-
-                        return streamsMap;
-                    }
-
-                    private List<ConsumerThread> buildThreads(final ConsumerReporter reporter, final Consumer consumer,
-                            final Map<String, List<KafkaStream<byte[], byte[]>>> streams) {
-                        final List<ConsumerThread> threads = new ArrayList<>();
-
-                        for (final Map.Entry<String, List<KafkaStream<byte[], byte[]>>> entry : streams.entrySet()) {
-                            final String topic = entry.getKey();
-                            final List<KafkaStream<byte[], byte[]>> list = entry.getValue();
-
-                            int count = 0;
-
-                            for (final KafkaStream<byte[], byte[]> stream : list) {
-                                final String name = String.format("%s:%d", topic, count++);
-
-                                threads.add(new ConsumerThread(async, name, reporter, stream, consumer, schema,
-                                        consuming, errors, consumed));
-                            }
                         }
 
-                        return threads;
+                        return streamsMap;
                     }
                 });
             }
@@ -162,9 +150,33 @@ public class KafkaConsumerModule implements ConsumerModule {
             @Override
             protected void configure() {
                 bind(ConsumerReporter.class).toInstance(reporter);
-                bind(Consumer.class).toInstance(new KafkaConsumer(consuming, total, errors, consumed, topics, config));
+                bind(Consumer.class).toInstance(
+                        new KafkaConsumer(consuming, total, errors, consumed, topics, config));
                 bind(key).to(Consumer.class).in(Scopes.SINGLETON);
                 expose(key);
+            }
+
+            private List<ConsumerThread> buildThreads(final AsyncFramework async,
+                    final ConsumerReporter reporter, final IngestionGroup ingestion,
+                    final Map<String, List<KafkaStream<byte[], byte[]>>> streams) {
+                final List<ConsumerThread> threads = new ArrayList<>();
+
+                for (final Map.Entry<String, List<KafkaStream<byte[], byte[]>>> entry : streams
+                        .entrySet()) {
+                    final String topic = entry.getKey();
+                    final List<KafkaStream<byte[], byte[]>> list = entry.getValue();
+
+                    int count = 0;
+
+                    for (final KafkaStream<byte[], byte[]> stream : list) {
+                        final String name = String.format("%s:%d", topic, count++);
+
+                        threads.add(new ConsumerThread(async, ingestion, name, reporter, stream,
+                                schema, consuming, errors, consumed));
+                    }
+                }
+
+                return threads;
             }
         };
     }
@@ -183,8 +195,8 @@ public class KafkaConsumerModule implements ConsumerModule {
         return new Builder();
     }
 
-    @NoArgsConstructor(access=AccessLevel.PRIVATE)
-    @AllArgsConstructor(access=AccessLevel.PRIVATE)
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
     public static class Builder implements ConsumerModule.Builder {
         private Optional<String> id = Optional.empty();
         private Optional<List<String>> topics = Optional.empty();
@@ -194,13 +206,15 @@ public class KafkaConsumerModule implements ConsumerModule {
 
         @JsonCreator
         public Builder(@JsonProperty("id") String id, @JsonProperty("schema") String schema,
-                @JsonProperty("topics") List<String> topics, @JsonProperty("threadsPerTopic") Integer threads,
+                @JsonProperty("topics") List<String> topics,
+                @JsonProperty("threadsPerTopic") Integer threads,
                 @JsonProperty("config") Map<String, String> config) {
             this.id = Optional.ofNullable(id);
             this.threads = Optional.ofNullable(threads);
             this.topics = Optional.ofNullable(topics);
             this.config = Optional.ofNullable(config);
-            this.schema = Optional.ofNullable(schema).map(s -> ReflectionUtils.buildInstance(s, ConsumerSchema.class));
+            this.schema = Optional.ofNullable(schema)
+                    .map(s -> ReflectionUtils.buildInstance(s, ConsumerSchema.class));
         }
 
         public Builder id(String id) {
@@ -224,7 +238,8 @@ public class KafkaConsumerModule implements ConsumerModule {
         }
 
         public Builder schema(String schemaClass) {
-            this.schema = Optional.of(ReflectionUtils.buildInstance(schemaClass, ConsumerSchema.class));
+            this.schema =
+                    Optional.of(ReflectionUtils.buildInstance(schemaClass, ConsumerSchema.class));
             return this;
         }
 
@@ -245,11 +260,13 @@ public class KafkaConsumerModule implements ConsumerModule {
 
         @Override
         public ConsumerModule build() {
-            if (topics.map(Collection::isEmpty).orElse(true))
+            if (topics.map(Collection::isEmpty).orElse(true)) {
                 throw new RuntimeException("No topics are defined");
+            }
 
-            if (!schema.isPresent())
+            if (!schema.isPresent()) {
                 throw new RuntimeException("Schema is not defined");
+            }
 
             // @formatter:off
             return new KafkaConsumerModule(

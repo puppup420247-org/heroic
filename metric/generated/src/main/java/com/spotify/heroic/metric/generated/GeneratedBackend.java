@@ -30,6 +30,7 @@ import javax.inject.Inject;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
+import com.spotify.heroic.QueryOptions;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.Groups;
 import com.spotify.heroic.common.LifeCycle;
@@ -42,7 +43,6 @@ import com.spotify.heroic.metric.FetchQuotaWatcher;
 import com.spotify.heroic.metric.MetricCollection;
 import com.spotify.heroic.metric.MetricType;
 import com.spotify.heroic.metric.Point;
-import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.metric.QueryTrace;
 import com.spotify.heroic.metric.WriteMetric;
 import com.spotify.heroic.metric.WriteResult;
@@ -56,7 +56,8 @@ import lombok.ToString;
  */
 @ToString
 public class GeneratedBackend extends AbstractMetricBackend implements LifeCycle {
-    public static final QueryTrace.Identifier FETCH = QueryTrace.identifier(GeneratedBackend.class, "fetch");
+    public static final QueryTrace.Identifier FETCH = QueryTrace.identifier(GeneratedBackend.class,
+            "fetch");
 
     private static final List<BackendEntry> EMPTY_ENTRIES = new ArrayList<>();
 
@@ -65,7 +66,8 @@ public class GeneratedBackend extends AbstractMetricBackend implements LifeCycle
     private final Groups groups;
 
     @Inject
-    public GeneratedBackend(final AsyncFramework async, final Generator generator, final Groups groups) {
+    public GeneratedBackend(final AsyncFramework async, final Generator generator,
+            final Groups groups) {
         super(async);
         this.async = async;
         this.generator = generator;

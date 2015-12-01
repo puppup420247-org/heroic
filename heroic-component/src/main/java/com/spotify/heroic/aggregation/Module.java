@@ -22,21 +22,17 @@
 package com.spotify.heroic.aggregation;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 import javax.inject.Inject;
 import javax.inject.Named;
 
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.spotify.heroic.HeroicContext;
 import com.spotify.heroic.HeroicModule;
+import com.spotify.heroic.common.Duration;
 import com.spotify.heroic.grammar.AggregationValue;
-import com.spotify.heroic.grammar.Value;
 
 import eu.toolchain.serializer.SerialReader;
 import eu.toolchain.serializer.SerialWriter;
@@ -62,133 +58,119 @@ public class Module implements HeroicModule {
 
             @Override
             public void setup() {
-                final Serializer<List<String>> list = s.list(s.string());
-                final Serializer<List<Aggregation>> aggregations = s.list(aggregation);
+                final Serializer<Optional<List<String>>> list = s.optional(s.list(s.string()));
+                final Serializer<List<AggregationInstance>> aggregations = s.list(aggregation);
 
-                ctx.aggregation(EmptyAggregation.NAME, EmptyAggregation.class, EmptyAggregationQuery.class,
-                        new Serializer<EmptyAggregation>() {
+                ctx.aggregation(Empty.NAME, EmptyInstance.class, Empty.class,
+                        new Serializer<EmptyInstance>() {
                     @Override
-                    public void serialize(SerialWriter buffer, EmptyAggregation value) throws IOException {
+                    public void serialize(SerialWriter buffer, EmptyInstance value)
+                            throws IOException {
                     }
 
                     @Override
-                    public EmptyAggregation deserialize(SerialReader buffer) throws IOException {
-                        return EmptyAggregation.INSTANCE;
+                    public EmptyInstance deserialize(SerialReader buffer) throws IOException {
+                        return EmptyInstance.INSTANCE;
                     }
-                }, new AggregationBuilder<EmptyAggregation>() {
+                }, args -> Empty.INSTANCE);
+
+                ctx.aggregation(Group.NAME, GroupInstance.class, Group.class,
+                        new GroupingAggregationSerializer<GroupInstance>(list, aggregation) {
                     @Override
-                    public EmptyAggregation build(AggregationContext context, List<Value> args,
-                            Map<String, Value> keywords) {
-                        return EmptyAggregation.INSTANCE;
+                    protected GroupInstance build(Optional<List<String>> of,
+                            AggregationInstance each) {
+                        return new GroupInstance(of, each);
+                    }
+                }, new GroupingAggregationBuilder(factory) {
+                    @Override
+                    protected Aggregation build(Optional<List<String>> over,
+                            Optional<Aggregation> each) {
+                        return new Group(over, each);
                     }
                 });
 
-                ctx.aggregation(GroupAggregation.NAME, GroupAggregation.class, GroupAggregationQuery.class,
-                        new GroupingAggregationSerializer<GroupAggregation>(list, aggregation) {
+                ctx.aggregation(Collapse.NAME, CollapseInstance.class, Collapse.class,
+                        new GroupingAggregationSerializer<CollapseInstance>(list, aggregation) {
                     @Override
-                    protected GroupAggregation build(List<String> of, Aggregation each) {
-                        return new GroupAggregation(of, each);
+                    protected CollapseInstance build(Optional<List<String>> of,
+                            AggregationInstance each) {
+                        return new CollapseInstance(of, each);
                     }
-                }, new GroupingAggregationBuilder<GroupAggregation>(factory) {
+                }, new GroupingAggregationBuilder(factory) {
                     @Override
-                    protected GroupAggregation build(List<String> over, Aggregation each) {
-                        return new GroupAggregation(over, each);
-                    }
-                });
-
-                ctx.aggregation(CollapseAggregation.NAME, CollapseAggregation.class, CollapseAggregationQuery.class,
-                        new GroupingAggregationSerializer<CollapseAggregation>(list, aggregation) {
-                    @Override
-                    protected CollapseAggregation build(List<String> of, Aggregation each) {
-                        return new CollapseAggregation(of, each);
-                    }
-                }, new GroupingAggregationBuilder<CollapseAggregation>(factory) {
-                    @Override
-                    protected CollapseAggregation build(List<String> over, Aggregation each) {
-                        return new CollapseAggregation(over, each);
+                    protected Aggregation build(Optional<List<String>> over,
+                            Optional<Aggregation> each) {
+                        return new Collapse(over, each);
                     }
                 });
 
-                ctx.aggregation(ChainAggregation.NAME, ChainAggregation.class, ChainAggregationQuery.class,
-                        new Serializer<ChainAggregation>() {
+                ctx.aggregation(Chain.NAME, ChainInstance.class, Chain.class,
+                        new Serializer<ChainInstance>() {
                     @Override
-                    public void serialize(SerialWriter buffer, ChainAggregation value) throws IOException {
+                    public void serialize(SerialWriter buffer, ChainInstance value)
+                            throws IOException {
                         aggregations.serialize(buffer, value.getChain());
                     }
 
                     @Override
-                    public ChainAggregation deserialize(SerialReader buffer) throws IOException {
-                        final List<Aggregation> chain = aggregations.deserialize(buffer);
-                        return new ChainAggregation(chain);
+                    public ChainInstance deserialize(SerialReader buffer) throws IOException {
+                        final List<AggregationInstance> chain = aggregations.deserialize(buffer);
+                        return new ChainInstance(chain);
                     }
-                }, new AbstractAggregationBuilder<ChainAggregation>(factory) {
+                }, new AbstractAggregationDSL(factory) {
                     @Override
-                    public ChainAggregation build(AggregationContext context, List<Value> args,
-                            Map<String, Value> keywords) {
-                        final List<Aggregation> aggregations = new ArrayList<>();
+                    public Aggregation build(final AggregationArguments args) {
+                        final List<Aggregation> chain =
+                                ImmutableList.copyOf(args.takeArguments(AggregationValue.class)
+                                        .stream().map(this::asAggregation).iterator());
 
-                        for (final Value v : args) {
-                            aggregations.addAll(flatten(context, v));
-                        }
-
-                        return new ChainAggregation(aggregations);
+                        return new Chain(chain);
                     }
                 });
 
-                ctx.aggregation(PartitionAggregation.NAME, PartitionAggregation.class, PartitionAggregationQuery.class,
-                        new Serializer<PartitionAggregation>() {
+                ctx.aggregation(Partition.NAME, PartitionInstance.class, Partition.class,
+                        new Serializer<PartitionInstance>() {
                     @Override
-                    public void serialize(SerialWriter buffer, PartitionAggregation value) throws IOException {
+                    public void serialize(SerialWriter buffer, PartitionInstance value)
+                            throws IOException {
                         aggregations.serialize(buffer, value.getChildren());
                     }
 
                     @Override
-                    public PartitionAggregation deserialize(SerialReader buffer) throws IOException {
-                        final List<Aggregation> children = aggregations.deserialize(buffer);
-                        return new PartitionAggregation(children);
+                    public PartitionInstance deserialize(SerialReader buffer) throws IOException {
+                        final List<AggregationInstance> children = aggregations.deserialize(buffer);
+                        return new PartitionInstance(children);
                     }
-                }, new AbstractAggregationBuilder<PartitionAggregation>(factory) {
+                }, new AbstractAggregationDSL(factory) {
                     @Override
-                    public PartitionAggregation build(AggregationContext context, List<Value> args,
-                            Map<String, Value> keywords) {
-                        final ImmutableList.Builder<Aggregation> aggregations = ImmutableList.builder();
-
-                        for (final Value v : args) {
-                            aggregations.addAll(flatten(context, v));
-                        }
-
-                        return new PartitionAggregation(aggregations.build());
+                    public Aggregation build(final AggregationArguments args) {
+                        final List<Aggregation> children =
+                                ImmutableList.copyOf(args.takeArguments(AggregationValue.class)
+                                        .stream().map(this::asAggregation).iterator());
+                        return new Partition(children);
                     }
                 });
 
-                ctx.aggregation("opts", Aggregation.class, OptionsAggregationQuery.class, aggregation,
-                        new AbstractAggregationBuilder<Aggregation>(factory) {
+                ctx.aggregation(Options.NAME, AggregationInstance.class, Options.class, aggregation,
+                        new AbstractAggregationDSL(factory) {
                     @Override
-                    public Aggregation build(AggregationContext context, List<Value> args,
-                            Map<String, Value> keywords) {
-                        final Deque<Value> a = new LinkedList<>(args);
-                        final Optional<Long> size = parseDiffMillis(a, keywords, "size");
-                        final Optional<Long> extent = parseDiffMillis(a, keywords, "extent");
-                        final OptionsContext c = new OptionsContext(context, size, extent);
-                        return extracted(keywords, a, c);
-                    }
+                    public Aggregation build(final AggregationArguments args) {
+                        final Optional<Aggregation> child =
+                                args.getNext("aggregation", AggregationValue.class)
+                                        .map(this::asAggregation);
 
-                    private Aggregation extracted(Map<String, Value> keywords, final Deque<Value> a,
-                            final OptionsContext c) {
-                        final AggregationValue aggregation;
+                        final Optional<Duration> size = args.keyword("size", Duration.class);
+                        final Optional<Duration> extent = args.keyword("extent", Duration.class);
 
-                        if (!a.isEmpty()) {
-                            aggregation = a.removeFirst().cast(AggregationValue.class);
+                        final Optional<SamplingQuery> sampling;
+
+                        if (size.isPresent() || extent.isPresent()) {
+                            sampling = Optional.of(new SamplingQuery(size, extent));
                         } else {
-                            if (!keywords.containsKey("aggregation")) {
-                                throw new IllegalArgumentException("Missing aggregation argument");
-                            }
-
-                            aggregation = keywords.get("aggregation").cast(AggregationValue.class);
+                            sampling = Optional.empty();
                         }
 
-                        return factory.build(c, aggregation.getName(), aggregation.getArguments(),
-                                aggregation.getKeywordArguments());
+                        return new Options(sampling, child);
                     }
                 });
             }

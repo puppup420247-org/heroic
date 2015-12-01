@@ -40,9 +40,11 @@ import com.spotify.heroic.statistics.HeroicReporter;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 public class AggregationCacheModule extends PrivateModule {
     private final AggregationCacheBackendModule backend;
 
@@ -63,8 +65,8 @@ public class AggregationCacheModule extends PrivateModule {
         return new Builder();
     }
 
-    @NoArgsConstructor(access=AccessLevel.PRIVATE)
-    @AllArgsConstructor(access=AccessLevel.PRIVATE)
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
     public static class Builder {
         private Optional<AggregationCacheBackendModule> backend = Optional.empty();
 
@@ -83,7 +85,8 @@ public class AggregationCacheModule extends PrivateModule {
         }
 
         public AggregationCacheModule build() {
-            return new AggregationCacheModule(backend.orElseGet(InMemoryAggregationCacheBackendConfig.builder()::build));
+            return new AggregationCacheModule(
+                    backend.orElseGet(InMemoryAggregationCacheBackendConfig.builder()::build));
         }
     }
 }

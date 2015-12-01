@@ -61,10 +61,16 @@ public class RawFilterImpl implements Filter.Raw {
 
     @Override
     public int compareTo(Filter o) {
-        if (!Filter.Raw.class.isAssignableFrom(o.getClass()))
+        if (!Filter.Raw.class.isAssignableFrom(o.getClass())) {
             return operator().compareTo(o.operator());
+        }
 
         final Filter.Raw other = (Filter.Raw) o;
         return filter.compareTo(other.first());
+    }
+
+    @Override
+    public String toDSL() {
+        throw new RuntimeException("raw filter cannot be converted to DSL");
     }
 }

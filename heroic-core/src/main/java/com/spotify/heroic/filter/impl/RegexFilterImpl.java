@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 
 import com.spotify.heroic.common.Series;
 import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.grammar.QueryParser;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -40,7 +41,8 @@ public class RegexFilterImpl implements Filter.Regex {
     @Override
     public boolean apply(Series series) {
         final String value;
-        return (value = series.getTags().get(tag)) != null && Pattern.compile(this.value).matcher(value).matches();
+        return (value = series.getTags().get(tag)) != null
+                && Pattern.compile(this.value).matcher(value).matches();
     }
 
     @Override
@@ -70,15 +72,22 @@ public class RegexFilterImpl implements Filter.Regex {
 
     @Override
     public int compareTo(Filter o) {
-        if (!Filter.Regex.class.isAssignableFrom(o.getClass()))
+        if (!Filter.Regex.class.isAssignableFrom(o.getClass())) {
             return operator().compareTo(o.operator());
+        }
 
         final Filter.Regex other = (Filter.Regex) o;
         final int first = FilterComparatorUtils.stringCompare(first(), other.first());
 
-        if (first != 0)
+        if (first != 0) {
             return first;
+        }
 
         return FilterComparatorUtils.stringCompare(second(), other.second());
+    }
+
+    @Override
+    public String toDSL() {
+        return QueryParser.escapeString(tag) + " ~ " + QueryParser.escapeString(value);
     }
 }

@@ -1,8 +1,32 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.metric;
 
 import java.util.List;
 
 import com.google.common.collect.ImmutableList;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.async.AsyncObservable;
+import com.spotify.heroic.async.AsyncObserver;
 import com.spotify.heroic.common.Statistics;
 
 import eu.toolchain.async.AsyncFramework;
@@ -29,8 +53,9 @@ public abstract class AbstractMetricBackend implements MetricBackend {
     }
 
     @Override
-    public AsyncFuture<BackendKeySet> keys(BackendKey start, int limit, QueryOptions options) {
-        return async.resolved(new BackendKeySet());
+    public AsyncObservable<List<BackendKey>> streamKeys(BackendKeyFilter filter,
+            QueryOptions options) {
+        return AsyncObservable.empty();
     }
 
     @Override
@@ -41,5 +66,72 @@ public abstract class AbstractMetricBackend implements MetricBackend {
     @Override
     public AsyncFuture<Long> countKey(BackendKey key, QueryOptions options) {
         return async.resolved(0L);
+    }
+
+    @Override
+    public AsyncFuture<MetricCollection> fetchRow(BackendKey key) {
+        return async.failed(new Exception("not supported"));
+    }
+
+    @Override
+    public AsyncObservable<MetricCollection> streamRow(BackendKey key) {
+        return observer -> {
+            observer.end();
+        };
+    }
+
+    @Override
+    public AsyncObservable<List<BackendKey>> streamKeysPaged(BackendKeyFilter filter,
+            final QueryOptions options, final int pageSize) {
+        return observer -> {
+            streamKeysNextPage(observer, filter, options, pageSize, null);
+        };
+    }
+
+    private void streamKeysNextPage(final AsyncObserver<List<BackendKey>> observer,
+            final BackendKeyFilter filter, final QueryOptions options, final int pageSize,
+            final BackendKey key) throws Exception {
+        BackendKeyFilter partial = filter;
+
+        if (key != null) {
+            partial = filter.withStart(BackendKeyFilter.gt(key));
+        }
+
+        partial = partial.withLimit(pageSize);
+
+        final AsyncObservable<List<BackendKey>> observable = streamKeys(partial, options);
+
+        observable.observe(new AsyncObserver<List<BackendKey>>() {
+            private BackendKey lastSeen = null;
+
+            @Override
+            public AsyncFuture<Void> observe(List<BackendKey> value) throws Exception {
+                lastSeen = value.get(value.size() - 1);
+                return observer.observe(value);
+            }
+
+            @Override
+            public void cancel() throws Exception {
+                observer.cancel();
+            }
+
+            @Override
+            public void fail(Throwable cause) throws Exception {
+                observer.fail(cause);
+            }
+
+            @Override
+            public void end() throws Exception {
+                // no key seen, we are at the end of the sequence.
+                if (lastSeen == null) {
+                    observer.end();
+                    return;
+                }
+
+                final BackendKey next = lastSeen;
+                lastSeen = null;
+                streamKeysNextPage(observer, filter, options, pageSize, next);
+            }
+        });
     }
 }

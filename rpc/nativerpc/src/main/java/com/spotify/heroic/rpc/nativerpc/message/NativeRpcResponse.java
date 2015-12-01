@@ -21,9 +21,32 @@
 
 package com.spotify.heroic.rpc.nativerpc.message;
 
+import java.io.IOException;
+
+import org.msgpack.packer.Packer;
+import org.msgpack.unpacker.Unpacker;
+
 import lombok.Data;
 
 @Data
 public class NativeRpcResponse {
+    private final NativeOptions options;
+    private final int size;
     private final byte[] body;
+
+    public static NativeRpcResponse unpack(final Unpacker unpacker) throws IOException {
+        final NativeOptions options = NativeOptions.unpack(unpacker);
+        final int size = unpacker.readInt();
+        final byte[] body = unpacker.readByteArray();
+
+        return new NativeRpcResponse(options, size, body);
+    }
+
+    public static void pack(NativeRpcResponse in, Packer out) throws IOException {
+        // OPTIONS
+        NativeOptions.pack(in.getOptions(), out);
+
+        out.write(in.getSize());
+        out.write(in.getBody());
+    }
 }

@@ -21,63 +21,32 @@
 
 package com.spotify.heroic.aggregation;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
+import com.google.common.collect.ImmutableList;
+import com.spotify.heroic.grammar.AggregationValue;
 import com.spotify.heroic.grammar.ListValue;
 import com.spotify.heroic.grammar.Value;
 
-public abstract class GroupingAggregationBuilder<T> extends AbstractAggregationBuilder<T> {
+public abstract class GroupingAggregationBuilder extends AbstractAggregationDSL {
     public GroupingAggregationBuilder(AggregationFactory factory) {
         super(factory);
     }
 
+    protected abstract Aggregation build(Optional<List<String>> of, Optional<Aggregation> each);
+
     @Override
-    public T build(AggregationContext context, List<Value> args, Map<String, Value> keywords) {
-        final List<String> over;
-        final Aggregation each;
-
-        if (args.size() > 0) {
-            over = convertOver(args.get(0));
-        } else {
-            over = convertOver(keywords.get("of"));
-        }
-
-        if (args.size() > 1) {
-            each = convertEach(context, args.subList(1, args.size()));
-        } else {
-            each = Aggregations.chain(flatten(context, keywords.get("each")));
-        }
-
-        return build(over, each);
+    public Aggregation build(final AggregationArguments args) {
+        final Optional<List<String>> of =
+                args.getNext("of", Value.class).flatMap(Value::toOptional).map(this::convertOf);
+        final Optional<Aggregation> each =
+                args.getNext("each", AggregationValue.class).map(this::asAggregation);
+        return build(of, each);
     }
 
-    protected abstract T build(List<String> over, Aggregation each);
-
-    private List<String> convertOver(Value value) {
-        if (value == null) {
-            return null;
-        }
-
-        final ListValue list = value.cast(ListValue.class);
-
-        final List<String> over = new ArrayList<>();
-
-        for (final Value v : list.getList()) {
-            over.add(v.cast(String.class));
-        }
-
-        return over;
-    }
-
-    private Aggregation convertEach(AggregationContext context, List<Value> values) {
-        final List<Aggregation> aggregations = new ArrayList<>();
-
-        for (final Value v : values) {
-            aggregations.addAll(flatten(context, v));
-        }
-
-        return new ChainAggregation(aggregations);
+    private List<String> convertOf(final Value list) {
+        return ImmutableList.copyOf(list.cast(ListValue.class).getList().stream()
+                .map(v -> v.cast(String.class)).iterator());
     }
 }

@@ -21,27 +21,18 @@
 
 package com.spotify.heroic;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.spotify.heroic.common.Optionals.pickOptional;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 
-import com.google.common.collect.ImmutableMap;
 import com.spotify.heroic.aggregation.Aggregation;
-import com.spotify.heroic.aggregation.AggregationContext;
-import com.spotify.heroic.aggregation.AggregationQuery;
-import com.spotify.heroic.aggregation.DefaultAggregationContext;
-import com.spotify.heroic.aggregation.EmptyAggregationQuery;
-import com.spotify.heroic.aggregation.GroupAggregation;
-import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.filter.FilterFactory;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.QueryOptions;
 
 import lombok.RequiredArgsConstructor;
 
@@ -49,22 +40,20 @@ import lombok.RequiredArgsConstructor;
 public class QueryBuilder {
     private final FilterFactory filters;
 
+    private Optional<MetricType> source = Optional.empty();
+    private Optional<Map<String, String>> tags = Optional.empty();
     private Optional<String> key = Optional.empty();
-    private Map<String, String> tags = ImmutableMap.of();
     private Optional<Filter> filter = Optional.empty();
     private Optional<List<String>> groupBy = Optional.empty();
-    private Optional<DateRange> range = Optional.empty();
-    private MetricType source = MetricType.POINT;
-    private AggregationQuery aggregationQuery = EmptyAggregationQuery.INSTANCE;
-    private Optional<Function<AggregationContext, Aggregation>> aggregationBuilder = Optional.empty();
-    private AggregationContext context = new DefaultAggregationContext();
+    private Optional<QueryDateRange> range = Optional.empty();
+    private Optional<Aggregation> aggregation = Optional.empty();
     private Optional<QueryOptions> options = Optional.empty();
 
     /**
      * Specify a set of tags that has to match.
      *
-     * @deprecated Use {@link #filter(Filter)} with the appropriate filter instead. These can be built using
-     *             {@link FilterFactory#matchKey(String)}.
+     * @deprecated Use {@link #filter(Filter)} with the appropriate filter instead. These can be
+     *             built using {@link FilterFactory#matchKey(String)}.
      */
     public QueryBuilder key(Optional<String> key) {
         this.key = key;
@@ -74,112 +63,101 @@ public class QueryBuilder {
     /**
      * Specify a set of tags that has to match.
      *
-     * @deprecated Use {@link #filter(Filter)} with the appropriate filter instead. These can be built using
-     *             {@link FilterFactory#matchTag(String, String)}.
+     * @deprecated Use {@link #filter(Filter)} with the appropriate filter instead. These can be
+     *             built using {@link FilterFactory#matchTag(String, String)}.
      */
-    public QueryBuilder tags(Map<String, String> tags) {
+    public QueryBuilder tags(Optional<Map<String, String>> tags) {
         checkNotNull(tags, "tags must not be null");
-        this.tags = tags;
+        this.tags = pickOptional(this.tags, tags);
         return this;
     }
 
     /**
      * Specify a group by to use.
-     * 
-     * @deprecated Use {@link #aggregation(Aggregation)} with the appropriate {@link GroupAggregation} instead.
+     *
+     * @deprecated Use the group aggregation instead.
      */
-    public QueryBuilder groupBy(Optional<List<String>> groupBy) {
-        this.groupBy = groupBy;
+    public QueryBuilder groupBy(final Optional<List<String>> groupBy) {
+        checkNotNull(groupBy, "groupBy must not be null");
+        this.groupBy = pickOptional(this.groupBy, groupBy);
         return this;
     }
 
     /**
      * Specify the date range for which data will be returned.
-     * 
+     *
      * Note: This range might be rounded to accommodate the sampling period of a given aggregation.
      */
-    public QueryBuilder range(Optional<DateRange> range) {
-        if (range.isPresent()) {
-            checkArgument(!range.get().isEmpty(), "range must not be empty");
-        }
-
-        this.range = range;
+    public QueryBuilder range(Optional<QueryDateRange> range) {
+        checkNotNull(range, "range");
+        this.range = pickOptional(this.range, range).filter(r -> !r.isEmpty());
         return this;
     }
 
     /**
      * Specify a filter to use.
      */
-    public QueryBuilder filter(Optional<Filter> filter) {
-        this.filter = filter;
+    public QueryBuilder filter(final Optional<Filter> filter) {
+        checkNotNull(filter, "filter must not be null");
+        this.filter = pickOptional(this.filter, filter);
         return this;
     }
 
     /**
      * Specify an aggregation to use.
      */
-    public QueryBuilder aggregationQuery(AggregationQuery aggregation) {
-        this.aggregationQuery = aggregation;
+    public QueryBuilder aggregation(final Optional<Aggregation> aggregation) {
+        checkNotNull(aggregation, "aggregation must not be null");
+        this.aggregation = pickOptional(this.aggregation, aggregation);
         return this;
     }
 
-    public QueryBuilder aggregationBuilder(Optional<Function<AggregationContext, Aggregation>> aggregationBuilder) {
-        this.aggregationBuilder = aggregationBuilder;
-        return this;
-    }
-
-    public QueryBuilder source(MetricType source) {
+    public QueryBuilder source(Optional<MetricType> source) {
         this.source = source;
         return this;
     }
 
-    public QueryBuilder options(QueryOptions options) {
-        this.options = Optional.of(options);
+    public QueryBuilder options(final Optional<QueryOptions> options) {
+        checkNotNull(options, "options");
+        this.options = pickOptional(this.options, options);
         return this;
     }
 
-    public QueryBuilder aggregationContext(AggregationContext context) {
-        this.context = checkNotNull(context, "context");
+    public QueryBuilder rangeIfAbsent(final Optional<QueryDateRange> range) {
+        if (!this.range.isPresent()) {
+            return range(range);
+        }
+
+        return this;
+    }
+
+    public QueryBuilder optionsIfAbsent(final Optional<QueryOptions> options) {
+        if (!this.options.isPresent()) {
+            return options(options);
+        }
+
         return this;
     }
 
     public Query build() {
-        final Filter filter = legacyFilter();
-
-        final Aggregation aggregation = legacyGroupBy(
-                aggregationBuilder.map(b -> b.apply(context)).orElseGet(() -> aggregationQuery.build(context)));
-
-        final Optional<DateRange> range = roundedRange(aggregation);
-
-        if (filter instanceof Filter.True) {
-            throw new IllegalArgumentException(
-                    "A valid filter must be defined, not one that matches everything (true)");
-        }
-
-        if (!range.isPresent()) {
-            throw new IllegalStateException("Range is not specified");
-        }
-
-        final QueryOptions options = this.options.orElseGet(QueryOptions::defaults);
-
-        return new Query(filter, range.get(), aggregation, source, options);
-    }
-
-    Aggregation legacyGroupBy(final Aggregation aggregation) {
-        return groupBy.<Aggregation> map(g -> new GroupAggregation(g, aggregation)).orElse(aggregation);
+        return new Query(aggregation, source, range, legacyFilter(), options, groupBy);
     }
 
     /**
      * Convert a MetricsRequest into a filter.
      *
-     * This is meant to stay backwards compatible, since every filtering in MetricsRequest can be expressed as filter
-     * objects.
+     * This is meant to stay backwards compatible, since every filtering in MetricsRequest can be
+     * expressed as filter objects.
      */
-    Filter legacyFilter() {
+    Optional<Filter> legacyFilter() {
         final List<Filter> statements = new ArrayList<>();
 
-        if (!tags.isEmpty()) {
-            for (final Map.Entry<String, String> entry : tags.entrySet()) {
+        if (filter.isPresent()) {
+            statements.add(filter.get());
+        }
+
+        if (tags.isPresent()) {
+            for (final Map.Entry<String, String> entry : tags.get().entrySet()) {
                 statements.add(filters.matchTag(entry.getKey(), entry.getValue()));
             }
         }
@@ -188,30 +166,14 @@ public class QueryBuilder {
             statements.add(filters.matchKey(key.get()));
         }
 
-        if (filter.isPresent()) {
-            statements.add(filter.get());
-        }
-
         if (statements.isEmpty()) {
-            return filters.t();
+            return Optional.empty();
         }
 
         if (statements.size() == 1) {
-            return statements.get(0).optimize();
+            return Optional.of(statements.get(0).optimize());
         }
 
-        return filters.and(statements).optimize();
-    }
-
-    Optional<DateRange> roundedRange(Aggregation aggregation) {
-        return range.map(r -> {
-            final long extent = aggregation.extent();
-
-            if (extent == 0) {
-                return r;
-            }
-
-            return r.rounded(extent).shiftStart(-extent);
-        });
+        return Optional.of(filters.and(statements).optimize());
     }
 }

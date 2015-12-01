@@ -21,19 +21,47 @@
 
 package com.spotify.heroic;
 
+import java.util.List;
+import java.util.Optional;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.spotify.heroic.aggregation.Aggregation;
-import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.aggregation.Group;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.QueryOptions;
 
 import lombok.Data;
 
 @Data
 public class Query {
-    private final Filter filter;
-    private final DateRange range;
-    private final Aggregation aggregation;
-    private final MetricType source;
-    private final QueryOptions options;
+    private final Optional<Aggregation> aggregation;
+    private final Optional<MetricType> source;
+    private final Optional<QueryDateRange> range;
+    private final Optional<Filter> filter;
+    private final Optional<QueryOptions> options;
+    private final Optional<List<String>> groupBy;
+
+    @JsonCreator
+    public Query(@JsonProperty("aggregation") final Optional<Aggregation> aggregation,
+            @JsonProperty("source") final Optional<MetricType> source,
+            @JsonProperty("range") final Optional<QueryDateRange> range,
+            @JsonProperty("filter") final Optional<Filter> filter,
+            @JsonProperty("options") final Optional<QueryOptions> options,
+            @JsonProperty("groupBy") final Optional<List<String>> groupBy) {
+        this.filter = filter;
+        this.range = range;
+        this.aggregation = aggregation;
+        this.source = source;
+        this.options = options;
+        this.groupBy = groupBy;
+    }
+
+    public Optional<Aggregation> aggregation() {
+        if (groupBy.isPresent()) {
+            return aggregation.<Aggregation> map(a -> new Group(groupBy, Optional.of(a)));
+        }
+
+        return aggregation;
+    }
 }

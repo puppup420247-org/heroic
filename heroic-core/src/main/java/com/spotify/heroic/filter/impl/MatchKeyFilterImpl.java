@@ -23,6 +23,7 @@ package com.spotify.heroic.filter.impl;
 
 import com.spotify.heroic.common.Series;
 import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.grammar.QueryParser;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -61,10 +62,16 @@ public class MatchKeyFilterImpl implements Filter.MatchKey {
 
     @Override
     public int compareTo(Filter o) {
-        if (!Filter.MatchKey.class.isAssignableFrom(o.getClass()))
+        if (!Filter.MatchKey.class.isAssignableFrom(o.getClass())) {
             return operator().compareTo(o.operator());
+        }
 
         final Filter.MatchKey other = (Filter.MatchKey) o;
         return FilterComparatorUtils.stringCompare(first(), other.first());
+    }
+
+    @Override
+    public String toDSL() {
+        return "$key = " + QueryParser.escapeString(value);
     }
 }

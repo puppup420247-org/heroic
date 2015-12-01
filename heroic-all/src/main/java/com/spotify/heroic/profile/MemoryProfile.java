@@ -23,9 +23,8 @@ package com.spotify.heroic.profile;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.spotify.heroic.HeroicConfig;
 import com.spotify.heroic.ExtraParameters;
-import com.spotify.heroic.HeroicProfile;
+import com.spotify.heroic.HeroicConfig;
 import com.spotify.heroic.aggregationcache.AggregationCacheModule;
 import com.spotify.heroic.aggregationcache.InMemoryAggregationCacheBackendConfig;
 import com.spotify.heroic.cluster.ClusterManagerModule;
@@ -38,7 +37,6 @@ import com.spotify.heroic.metadata.elasticsearch.ElasticsearchMetadataModule;
 import com.spotify.heroic.metric.MetricManagerModule;
 import com.spotify.heroic.metric.MetricModule;
 import com.spotify.heroic.metric.memory.MemoryMetricModule;
-import com.spotify.heroic.shell.ShellServerModule;
 import com.spotify.heroic.suggest.SuggestManagerModule;
 import com.spotify.heroic.suggest.SuggestModule;
 import com.spotify.heroic.suggest.elasticsearch.ElasticsearchSuggestModule;
@@ -100,13 +98,14 @@ public class MemoryProfile extends HeroicProfileBase {
             .cache(
                 AggregationCacheModule.builder()
                     .backend(InMemoryAggregationCacheBackendConfig.builder().build())
-            )
-            .shellServer(ShellServerModule.builder());
+            );
         // @formatter:on
     }
 
     @Override
     public String description() {
+        // @formatter:off
         return "Configures in-memory backends for everything (useful for integration/performance testing)";
+        // @formatter:on
     }
 }

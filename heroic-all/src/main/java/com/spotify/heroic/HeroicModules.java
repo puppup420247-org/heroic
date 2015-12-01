@@ -1,15 +1,39 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic;
 
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
 
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.spotify.heroic.profile.BigtableProfile;
 import com.spotify.heroic.profile.CassandraProfile;
 import com.spotify.heroic.profile.ClusterProfile;
+import com.spotify.heroic.profile.CollectdConsumerProfile;
 import com.spotify.heroic.profile.ElasticsearchMetadataProfile;
 import com.spotify.heroic.profile.ElasticsearchSuggestProfile;
 import com.spotify.heroic.profile.GeneratedProfile;
@@ -33,6 +57,8 @@ public class HeroicModules {
 
         new com.spotify.heroic.consumer.kafka.Module(),
 
+        new com.spotify.heroic.consumer.collectd.Module(),
+
         new com.spotify.heroic.aggregationcache.cassandra2.Module(),
 
         new com.spotify.heroic.rpc.nativerpc.Module()
@@ -47,6 +73,7 @@ public class HeroicModules {
         .put("kafka-consumer", new KafkaConsumerProfile())
         .put("bigtable", new BigtableProfile())
         .put("cluster", new ClusterProfile())
+        .put("collectd", new CollectdConsumerProfile())
     .build();
     // @formatter:on
 
@@ -72,7 +99,8 @@ public class HeroicModules {
         out.println(String.format("Available Profiles (activate with: %s <profile>):", option));
 
         for (final Map.Entry<String, HeroicProfile> entry : PROFILES.entrySet()) {
-            ParameterSpecification.printWrapped(out, "  ", 80, entry.getKey() + " - " + entry.getValue().description());
+            ParameterSpecification.printWrapped(out, "  ", 80,
+                    entry.getKey() + " - " + entry.getValue().description());
 
             for (final ParameterSpecification o : entry.getValue().options()) {
                 o.printHelp(out, "    ", 80);
@@ -85,7 +113,7 @@ public class HeroicModules {
     }
 
     public static void printAllUsage(final PrintStream out, final String option) {
-        final PrintWriter o = new PrintWriter(out);
+        final PrintWriter o = new PrintWriter(new OutputStreamWriter(out, Charsets.UTF_8));
 
         try {
             printAllUsage(o, option);

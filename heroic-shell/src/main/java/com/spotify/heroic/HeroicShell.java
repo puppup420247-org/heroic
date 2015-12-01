@@ -1,21 +1,31 @@
-/* Copyright (c) 2015 Spotify AB.
- * 
- * Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements. See the NOTICE
- * file distributed with this work for additional information regarding copyright ownership. The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
- * License. You may obtain a copy of the License at
- * 
- * http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License. */
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
 package com.spotify.heroic;
 
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.lang.Thread.UncaughtExceptionHandler;
@@ -33,6 +43,7 @@ import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import com.spotify.heroic.HeroicCore.Builder;
@@ -56,10 +67,10 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class HeroicShell {
-    public static final Path[] DEFAULT_CONFIGS = new Path[] { Paths.get("heroic.yml"),
-            Paths.get("/etc/heroic/heroic.yml") };
+    public static final Path[] DEFAULT_CONFIGS =
+            new Path[] {Paths.get("heroic.yml"), Paths.get("/etc/heroic/heroic.yml")};
 
-    public static SerializerFramework serializer = ShellProtocol.setupSerializer();
+    public static final SerializerFramework serializer = ShellProtocol.setupSerializer();
 
     public static void main(String[] args) throws IOException {
         Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler() {
@@ -93,7 +104,8 @@ public class HeroicShell {
             return;
         }
 
-        final AsyncFramework async = TinyAsync.builder().executor(Executors.newSingleThreadExecutor()).build();
+        final AsyncFramework async =
+                TinyAsync.builder().executor(Executors.newSingleThreadExecutor()).build();
 
         if (parsed.child.isEmpty()) {
             final CoreInterface bridge;
@@ -122,7 +134,8 @@ public class HeroicShell {
         System.exit(0);
     }
 
-    private static CoreInterface setupCoreBridge(Parameters params, AsyncFramework async) throws Exception {
+    private static CoreInterface setupCoreBridge(Parameters params, AsyncFramework async)
+            throws Exception {
         if (params.connect != null) {
             return setupRemoteCore(params.connect, async);
         }
@@ -130,11 +143,13 @@ public class HeroicShell {
         return setupLocalCore(params, async);
     }
 
-    private static CoreInterface setupRemoteCore(String connect, AsyncFramework async) throws Exception {
+    private static CoreInterface setupRemoteCore(String connect, AsyncFramework async)
+            throws Exception {
         return RemoteCoreInterface.fromConnectString(connect, async, serializer);
     }
 
-    private static CoreInterface setupLocalCore(Parameters params, AsyncFramework async) throws Exception {
+    private static CoreInterface setupLocalCore(Parameters params, AsyncFramework async)
+            throws Exception {
         final HeroicCore.Builder builder = setupBuilder(params);
 
         final HeroicCore core = builder.build();
@@ -182,16 +197,17 @@ public class HeroicShell {
         }
     }
 
-    static void runInteractiveShell(final CoreInterface core)
-            throws Exception {
+    static void runInteractiveShell(final CoreInterface core) throws Exception {
         final List<CommandDefinition> commands = new ArrayList<>(core.commands());
 
         commands.add(new CommandDefinition("clear", ImmutableList.of(), "Clear the current shell"));
-        commands.add(new CommandDefinition("timeout", ImmutableList.of(), "Get or set the current task timeout"));
+        commands.add(new CommandDefinition("timeout", ImmutableList.of(),
+                "Get or set the current task timeout"));
         commands.add(new CommandDefinition("exit", ImmutableList.of(), "Exit the shell"));
 
         try (final FileInputStream input = new FileInputStream(FileDescriptor.in)) {
-            final HeroicInteractiveShell interactive = HeroicInteractiveShell.buildInstance(commands, input);
+            final HeroicInteractiveShell interactive =
+                    HeroicInteractiveShell.buildInstance(commands, input);
 
             try {
                 interactive.run(core);
@@ -252,7 +268,8 @@ public class HeroicShell {
     }
 
     @SuppressWarnings("unchecked")
-    static Class<ShellTask> resolveShellTask(final String taskName) throws ClassNotFoundException, Exception {
+    static Class<ShellTask> resolveShellTask(final String taskName)
+            throws ClassNotFoundException, Exception {
         final Class<?> taskType = Class.forName(taskName);
 
         if (!(ShellTask.class.isAssignableFrom(taskType))) {
@@ -262,19 +279,25 @@ public class HeroicShell {
         return (Class<ShellTask>) taskType;
     }
 
-    static PrintWriter standaloneOutput(final TaskParameters params, final PrintStream original) throws IOException {
+    static PrintWriter standaloneOutput(final TaskParameters params, final PrintStream original)
+            throws IOException {
+        final OutputStream out;
+
         if (params.output() != null && !"-".equals(params.output())) {
-            return new PrintWriter(Files.newOutputStream(Paths.get(params.output())));
+            out = Files.newOutputStream(Paths.get(params.output()));
+        } else {
+            out = original;
         }
 
-        return new PrintWriter(original);
+        return new PrintWriter(new OutputStreamWriter(out, Charsets.UTF_8));
     }
 
     static Path parseConfigPath(String config) {
         final Path path = doParseConfigPath(config);
 
-        if (!Files.isRegularFile(path))
+        if (!Files.isRegularFile(path)) {
             throw new IllegalStateException("No such file: " + path.toAbsolutePath());
+        }
 
         return path;
     }
@@ -282,8 +305,9 @@ public class HeroicShell {
     static Path doParseConfigPath(String config) {
         if (config == null) {
             for (final Path p : DEFAULT_CONFIGS) {
-                if (Files.isRegularFile(p))
+                if (Files.isRegularFile(p)) {
                     return p;
+                }
             }
 
             throw new IllegalStateException("No default configuration available, checked "
@@ -296,15 +320,17 @@ public class HeroicShell {
     static String formatDefaults(Path[] defaultConfigs) {
         final List<Path> alternatives = new ArrayList<>(defaultConfigs.length);
 
-        for (final Path path : defaultConfigs)
+        for (final Path path : defaultConfigs) {
             alternatives.add(path.toAbsolutePath());
+        }
 
         return StringUtils.join(alternatives, ", ");
     }
 
     static HeroicCore.Builder setupBuilder(Parameters params) {
-        HeroicCore.Builder builder = HeroicCore.builder().setupService(params.server).disableBackends(params.disableBackends)
-                .skipLifecycles(params.skipLifecycles).modules(HeroicModules.ALL_MODULES).oneshot(true);
+        HeroicCore.Builder builder = HeroicCore.builder().setupService(params.server)
+                .disableBackends(params.disableBackends).skipLifecycles(params.skipLifecycles)
+                .modules(HeroicModules.ALL_MODULES).oneshot(true);
 
         if (params.config() != null) {
             builder.configPath(parseConfigPath(params.config()));
@@ -316,7 +342,8 @@ public class HeroicShell {
             final HeroicProfile p = HeroicModules.PROFILES.get(profile);
 
             if (p == null) {
-                throw new IllegalArgumentException(String.format("not a valid profile: %s", profile));
+                throw new IllegalArgumentException(
+                        String.format("not a valid profile: %s", profile));
             }
 
             builder.profile(p);
@@ -332,7 +359,8 @@ public class HeroicShell {
         @Option(name = "--server", usage = "Start shell as server (enables listen port)")
         private boolean server = false;
 
-        @Option(name = "--shell-server", usage = "Start shell with shell server (enables remote connections)")
+        @Option(name = "--shell-server",
+                usage = "Start shell with shell server (enables remote connections)")
         private boolean shellServer = false;
 
         @Option(name = "--skip-lifecycles", usage = "Start core without starting lifecycles")
@@ -341,10 +369,11 @@ public class HeroicShell {
         @Option(name = "--disable-backends", usage = "Start core without configuring backends")
         private boolean disableBackends = false;
 
-        @Option(name = "--connect", usage = "Connect to a remote heroic server", metaVar="<host>[:<port>]")
+        @Option(name = "--connect", usage = "Connect to a remote heroic server",
+                metaVar = "<host>[:<port>]")
         private String connect = null;
 
-        @Option(name = "-X", usage="Define an extra parameter", metaVar="<key>=<value>")
+        @Option(name = "-X", usage = "Define an extra parameter", metaVar = "<key>=<value>")
         private final List<String> parameters = new ArrayList<>();
     }
 

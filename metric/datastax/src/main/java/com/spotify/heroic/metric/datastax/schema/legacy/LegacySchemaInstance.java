@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.metric.datastax.schema.legacy;
 
 import java.io.IOException;
@@ -6,7 +27,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.PreparedStatement;
@@ -17,48 +37,58 @@ import com.spotify.heroic.metric.BackendKey;
 import com.spotify.heroic.metric.Point;
 import com.spotify.heroic.metric.datastax.MetricsRowKey;
 import com.spotify.heroic.metric.datastax.TypeSerializer;
+import com.spotify.heroic.metric.datastax.schema.AbstractSchemaInstance;
+import com.spotify.heroic.metric.datastax.schema.BackendKeyUtils;
 import com.spotify.heroic.metric.datastax.schema.Schema.PreparedFetch;
-import com.spotify.heroic.metric.datastax.schema.SchemaInstance;
 
 import eu.toolchain.async.Transform;
 import lombok.Data;
 
 @Data
-public class LegacySchemaInstance implements SchemaInstance {
+public class LegacySchemaInstance extends AbstractSchemaInstance {
+    public static final String KEY = "metric_key";
+
+    public static final TypeSerializer<MetricsRowKey> ROW_KEY = new MetricsRowKeySerializer();
+
     private final PreparedStatement write;
     private final PreparedStatement fetch;
     private final PreparedStatement delete;
     private final PreparedStatement count;
-    private final PreparedStatement keysPaging;
-    private final PreparedStatement keysPagingLeft;
-    private final PreparedStatement keysPagingLimit;
-    private final PreparedStatement keysPagingLeftLimit;
+    private final BackendKeyUtils keyUtils;
+
+    public LegacySchemaInstance(final String keyspace, final String pointsTable,
+            final PreparedStatement write, final PreparedStatement fetch,
+            final PreparedStatement delete, final PreparedStatement count) {
+        super(KEY);
+        this.write = write;
+        this.fetch = fetch;
+        this.delete = delete;
+        this.count = count;
+        this.keyUtils = new BackendKeyUtils(KEY, keyspace, pointsTable, this);
+    }
 
     /**
-     * This constant represents the maximum row width of the metrics column family. It equals the amount of numbers that
-     * can be represented by Integer. Since the column name is the timestamp offset, having an integer as column offset
-     * indicates that we can fit about 49 days of data into one row. We do not assume that Integers are 32 bits. This
-     * makes it possible to work even if it's not 32 bits.
+     * This constant represents the maximum row width of the metrics column family. It equals the
+     * amount of numbers that can be represented by Integer. Since the column name is the timestamp
+     * offset, having an integer as column offset indicates that we can fit about 49 days of data
+     * into one row. We do not assume that Integers are 32 bits. This makes it possible to work even
+     * if it's not 32 bits.
      */
     public static final long MAX_WIDTH = (long) Integer.MAX_VALUE - (long) Integer.MIN_VALUE + 1;
 
-    private final TypeSerializer<MetricsRowKey> rowKey = new MetricsRowKeySerializer();
-
     @Override
     public TypeSerializer<MetricsRowKey> rowKey() {
-        return rowKey;
+        return ROW_KEY;
     }
 
     @Override
-    public Transform<Row, BackendKey> keyConverter() {
-        return row -> {
-            final MetricsRowKey key = rowKey.deserialize(row.getBytes("metric_key"));
-            return new BackendKey(key.getSeries(), key.getBase());
-        };
+    public BackendKeyUtils keyUtils() {
+        return keyUtils;
     }
 
     @Override
-    public List<PreparedFetch> ranges(final Series series, final DateRange range) throws IOException {
+    public List<PreparedFetch> ranges(final Series series, final DateRange range)
+            throws IOException {
         final List<PreparedFetch> bases = new ArrayList<>();
 
         final long start = calculateBaseTimestamp(range.getStart());
@@ -72,7 +102,7 @@ public class LegacySchemaInstance implements SchemaInstance {
             }
 
             final MetricsRowKey key = new MetricsRowKey(series, currentBase);
-            final ByteBuffer keyBlob = rowKey.serialize(key);
+            final ByteBuffer keyBlob = ROW_KEY.serialize(key);
             final int startKey = calculateColumnKey(modified.start());
             final int endKey = calculateColumnKey(modified.end());
             final long base = currentBase;
@@ -103,8 +133,31 @@ public class LegacySchemaInstance implements SchemaInstance {
     }
 
     @Override
-    public BoundStatement keysPaging(Optional<ByteBuffer> first, int limit) {
-        return first.map(f ->  keysPagingLeftLimit.bind(f, limit)).orElseGet(() -> keysPagingLimit.bind(limit));
+    public PreparedFetch row(final BackendKey key) throws IOException {
+        final long base = key.getBase();
+
+        final ByteBuffer k = ROW_KEY.serialize(new MetricsRowKey(key.getSeries(), base));
+
+        return new PreparedFetch() {
+            @Override
+            public BoundStatement fetch(int limit) {
+                return fetch.bind(k, Integer.MIN_VALUE, Integer.MAX_VALUE, limit);
+            }
+
+            @Override
+            public Transform<Row, Point> converter() {
+                return row -> {
+                    final long timestamp = calculateAbsoluteTimestamp(base, row.getInt(0));
+                    final double value = row.getDouble(1);
+                    return new Point(timestamp, value);
+                };
+            }
+
+            @Override
+            public String toString() {
+                return "<Fetch Row " + key + ">";
+            }
+        };
     }
 
     @Override
@@ -119,7 +172,7 @@ public class LegacySchemaInstance implements SchemaInstance {
                 ByteBuffer key = cache.get(base);
 
                 if (key == null) {
-                    key = rowKey.serialize(new MetricsRowKey(series, base));
+                    key = ROW_KEY.serialize(new MetricsRowKey(series, base));
                     cache.put(base, key);
                 }
 

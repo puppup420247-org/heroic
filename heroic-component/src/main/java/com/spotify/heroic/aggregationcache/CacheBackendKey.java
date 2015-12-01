@@ -23,10 +23,10 @@ package com.spotify.heroic.aggregationcache;
 
 import java.util.Map;
 
-import lombok.Data;
-
-import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.aggregation.AggregationInstance;
 import com.spotify.heroic.filter.Filter;
+
+import lombok.Data;
 
 @Data
 public class CacheBackendKey {
@@ -43,5 +43,5 @@ public class CacheBackendKey {
     /**
      * Always includes sampling.
      */
-    private final Aggregation aggregation;
+    private final AggregationInstance aggregation;
 }

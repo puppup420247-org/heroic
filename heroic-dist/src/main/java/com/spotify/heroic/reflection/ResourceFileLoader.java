@@ -31,48 +31,54 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
-import lombok.RequiredArgsConstructor;
-
+import com.google.common.base.Charsets;
 import com.spotify.heroic.HeroicService.Configuration;
+
+import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public final class ResourceFileLoader {
-    public static <T> List<ResourceInstance<T>> loadInstances(String path, ClassLoader loader, Class<T> expected)
-            throws ResourceException {
+    public static <T> List<ResourceInstance<T>> loadInstances(String path, ClassLoader loader,
+            Class<T> expected) throws ResourceException {
         final List<ResourceInstance<T>> instances = new ArrayList<>();
 
         final URL resource = loader.getResource(path);
 
-        if (resource == null)
+        if (resource == null) {
             return instances;
+        }
 
         final ResourcePathContext pathCtx = new ResourcePathContext(resource.toString());
 
         try (final InputStream stream = resource.openStream()) {
-            try (final Reader reader = new InputStreamReader(stream)) {
+            try (final Reader reader = new InputStreamReader(stream, Charsets.UTF_8)) {
                 try (final BufferedReader buffered = new BufferedReader(reader)) {
                     int lineNumber = 0;
 
                     while (true) {
                         final String line = buffered.readLine();
 
-                        if (line == null)
+                        if (line == null) {
                             break;
+                        }
 
-                        final ResourceLineContext ctx = new ResourceLineContext(pathCtx, ++lineNumber);
+                        final ResourceLineContext ctx = new ResourceLineContext(pathCtx,
+                                ++lineNumber);
 
                         try {
                             final String trimmed = line.trim();
 
                             // skip comments
-                            if (trimmed.startsWith("#"))
+                            if (trimmed.startsWith("#")) {
                                 continue;
+                            }
 
                             final Class<?> c = Class.forName(trimmed, true, loader);
 
-                            if (!expected.isAssignableFrom(c))
+                            if (!expected.isAssignableFrom(c)) {
                                 throw ctx.exception(trimmed + " does not extend "
                                         + Configuration.class.getCanonicalName());
+                            }
 
                             @SuppressWarnings("unchecked")
                             final Class<T> type = (Class<T>) c;

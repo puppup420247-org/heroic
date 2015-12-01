@@ -24,6 +24,7 @@ package com.spotify.heroic.grammar;
 import java.util.concurrent.TimeUnit;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 /**
  * int's are represented internally as longs.
@@ -32,46 +33,57 @@ import lombok.Data;
  */
 @ValueName("int")
 @Data
+@EqualsAndHashCode(exclude = {"c"})
 public final class IntValue implements Value {
     private final Long value;
+    private final Context c;
+
+    @Override
+    public Context context() {
+        return c;
+    }
 
     @Override
     public Value sub(Value other) {
-        return new IntValue(value - other.cast(this).value);
+        return new IntValue(value - other.cast(this).value, c.join(other.context()));
     }
 
     @Override
     public Value add(Value other) {
-        return new IntValue(value + other.cast(this).value);
+        return new IntValue(value + other.cast(this).value, c.join(other.context()));
     }
 
     public String toString() {
-        return String.format("<int:%d>", value);
+        return String.format("<%d>", value);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(T to) {
-        if (to instanceof IntValue)
+        if (to instanceof IntValue) {
             return (T) this;
-
-        if (to instanceof DiffValue) {
-            final DiffValue o = (DiffValue) to;
-            return (T) new DiffValue(o.getUnit(), o.getUnit().convert(value, TimeUnit.MILLISECONDS));
         }
 
-        throw new ValueCastException(this, to);
+        if (to instanceof DurationValue) {
+            final DurationValue o = (DurationValue) to;
+            return (T) new DurationValue(o.getUnit(),
+                    o.getUnit().convert(value, TimeUnit.MILLISECONDS), c);
+        }
+
+        throw c.castError(this, to);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(Class<T> to) {
-        if (to.isAssignableFrom(IntValue.class))
+        if (to.isAssignableFrom(IntValue.class)) {
             return (T) this;
+        }
 
-        if (to.isAssignableFrom(Long.class))
+        if (to.isAssignableFrom(Long.class)) {
             return (T) value;
+        }
 
-        throw new ValueTypeCastException(this, to);
+        throw c.castError(this, to);
     }
 }

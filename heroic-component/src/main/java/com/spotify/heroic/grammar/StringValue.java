@@ -21,33 +21,46 @@
 
 package com.spotify.heroic.grammar;
 
+import com.google.common.collect.ImmutableMap;
+
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @ValueName("string")
 @Data
+@EqualsAndHashCode(exclude = {"c"})
 public final class StringValue implements Value {
     private final String string;
+    private final Context c;
+
+    @Override
+    public Context context() {
+        return c;
+    }
 
     @Override
     public Value sub(Value other) {
-        throw new IllegalArgumentException(String.format("subtraction with string is not supported", this.getClass(),
-                other.getClass()));
+        throw new IllegalArgumentException(
+                String.format("subtraction with string is not supported (%s - %s)", this.getClass(),
+                        other.getClass()));
     }
 
     @Override
     public Value add(Value other) {
-        return new StringValue(string + other.cast(this).string);
+        final StringValue o =  other.cast(this);
+        return new StringValue(string + o.string, c.join(o.c));
     }
 
     public String toString() {
-        return String.format("<string:%s>", string);
+        return QueryParser.escapeString(string);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(T to) {
-        if (to instanceof StringValue)
+        if (to instanceof StringValue) {
             return (T) this;
+        }
 
         if (to instanceof Long) {
             try {
@@ -57,18 +70,28 @@ public final class StringValue implements Value {
             }
         }
 
-        throw new ValueCastException(this, to);
+        throw c.castError(this, to);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(Class<T> to) {
-        if (to.isAssignableFrom(StringValue.class))
+        if (to.isAssignableFrom(StringValue.class)) {
             return (T) this;
+        }
 
-        if (to == String.class)
+        if (to.isAssignableFrom(ListValue.class)) {
+            return (T) Value.list(this);
+        }
+
+        if (to.isAssignableFrom(AggregationValue.class)) {
+            return (T) new AggregationValue(string, Value.list(), ImmutableMap.of(), c);
+        }
+
+        if (to == String.class) {
             return (T) string;
+        }
 
-        throw new ValueTypeCastException(this, to);
+        throw c.castError(this, to);
     }
 }

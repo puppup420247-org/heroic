@@ -22,10 +22,10 @@
 package com.spotify.heroic.rpc.nativerpc;
 
 import java.net.InetSocketAddress;
+import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Key;
 import com.google.inject.Module;
@@ -59,19 +59,26 @@ public class NativeRpcProtocolModule implements RpcProtocolModule {
     private final int maxFrameSize;
     private final long sendTimeout;
     private final long heartbeatInterval;
+    private final NativeEncoding encoding;
 
     @JsonCreator
-    public NativeRpcProtocolModule(@JsonProperty("host") String host, @JsonProperty("port") Integer port,
-            @JsonProperty("parentThreads") Integer parentThreads, @JsonProperty("childThreads") Integer childThreads,
+    public NativeRpcProtocolModule(@JsonProperty("host") String host,
+            @JsonProperty("port") Integer port,
+            @JsonProperty("parentThreads") Integer parentThreads,
+            @JsonProperty("childThreads") Integer childThreads,
             @JsonProperty("maxFrameSize") Integer maxFrameSize,
-            @JsonProperty("heartbeatInterval") Long heartbeatInterval, @JsonProperty("sendTimeout") Long sendTimeout) {
-        this.address = new InetSocketAddress(Optional.fromNullable(host).or(DEFAULT_HOST), Optional.fromNullable(port)
-                .or(DEFAULT_PORT));
-        this.parentThreads = Optional.fromNullable(parentThreads).or(DEFAULT_PARENT_THREADS);
-        this.childThreads = Optional.fromNullable(childThreads).or(DEFAULT_CHILD_THREADS);
-        this.maxFrameSize = Optional.fromNullable(maxFrameSize).or(DEFAULT_MAX_FRAME_SIZE);
-        this.heartbeatInterval = Optional.fromNullable(heartbeatInterval).or(DEFAULT_HEARTBEAT_INTERVAL);
-        this.sendTimeout = Optional.fromNullable(sendTimeout).or(DEFAULT_SEND_TIMEOUT);
+            @JsonProperty("heartbeatInterval") Long heartbeatInterval,
+            @JsonProperty("sendTimeout") Long sendTimeout,
+            @JsonProperty("encoding") Optional<NativeEncoding> encoding) {
+        this.address = new InetSocketAddress(Optional.ofNullable(host).orElse(DEFAULT_HOST),
+                Optional.ofNullable(port).orElse(DEFAULT_PORT));
+        this.parentThreads = Optional.ofNullable(parentThreads).orElse(DEFAULT_PARENT_THREADS);
+        this.childThreads = Optional.ofNullable(childThreads).orElse(DEFAULT_CHILD_THREADS);
+        this.maxFrameSize = Optional.ofNullable(maxFrameSize).orElse(DEFAULT_MAX_FRAME_SIZE);
+        this.heartbeatInterval =
+                Optional.ofNullable(heartbeatInterval).orElse(DEFAULT_HEARTBEAT_INTERVAL);
+        this.sendTimeout = Optional.ofNullable(sendTimeout).orElse(DEFAULT_SEND_TIMEOUT);
+        this.encoding = encoding.orElse(NativeEncoding.GZIP);
     }
 
     @Override
@@ -94,19 +101,24 @@ public class NativeRpcProtocolModule implements RpcProtocolModule {
             @Provides
             @Singleton
             public Timer timer() {
-                return new HashedWheelTimer(new ThreadFactoryBuilder().setNameFormat("nativerpc-timer-%d").build());
+                return new HashedWheelTimer(
+                        new ThreadFactoryBuilder().setNameFormat("nativerpc-timer-%d").build());
+            }
+
+            @Provides
+            @Singleton
+            public NativeEncoding encoding() {
+                return encoding;
             }
 
             @Override
             protected void configure() {
-                final long heartbeatReadInterval = heartbeatInterval * 2;
-
-                bind(key).toInstance(
-                        new NativeRpcProtocol(DEFAULT_PORT, maxFrameSize, sendTimeout, heartbeatReadInterval));
+                bind(key).toInstance(new NativeRpcProtocol(DEFAULT_PORT, maxFrameSize, sendTimeout,
+                        heartbeatInterval));
 
                 if (!options.isDisableLocal()) {
                     bind(NativeRpcProtocolServer.class)
-                            .toInstance(new NativeRpcProtocolServer(address, heartbeatReadInterval, maxFrameSize));
+                            .toInstance(new NativeRpcProtocolServer(address, maxFrameSize));
                 }
 
                 expose(key);
@@ -131,6 +143,7 @@ public class NativeRpcProtocolModule implements RpcProtocolModule {
         private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
         private long sendTimeout = DEFAULT_SEND_TIMEOUT;
         private long heartbeatInterval = DEFAULT_HEARTBEAT_INTERVAL;
+        private NativeEncoding encoding = NativeEncoding.GZIP;
 
         public Builder host(final String host) {
             this.host = host;
@@ -167,9 +180,14 @@ public class NativeRpcProtocolModule implements RpcProtocolModule {
             return this;
         }
 
+        public Builder encoding(final NativeEncoding encoding) {
+            this.encoding = encoding;
+            return this;
+        }
+
         public NativeRpcProtocolModule build() {
-            return new NativeRpcProtocolModule(host, port, parentThreads, childThreads, maxFrameSize, sendTimeout,
-                    heartbeatInterval);
+            return new NativeRpcProtocolModule(host, port, parentThreads, childThreads,
+                    maxFrameSize, sendTimeout, heartbeatInterval, Optional.of(encoding));
         }
     }
 }

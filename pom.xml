@@ -26,6 +26,7 @@
     <module>discovery/simple</module>
     <module>aggregation/simple</module>
     <module>consumer/kafka</module>
+    <module>consumer/collectd</module>
     <module>aggregationcache/cassandra2</module>
     <module>rpc/nativerpc</module>
     <module>heroic-coalesce</module>
@@ -44,12 +45,12 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jersey.version>2.13</jersey.version>
-    <jackson.version>2.6.1</jackson.version>
+    <jackson.version>2.6.3</jackson.version>
     <hk2.version>2.3.0</hk2.version>
     <jetty.version>9.2.2.v20140723</jetty.version>
     <lucene.version>4.10.4</lucene.version>
     <astyanax.version>2.0.2</astyanax.version>
-    <datastax.version>2.1.4</datastax.version>
+    <datastax.version>2.1.9</datastax.version>
     <guice.version>4.0</guice.version>
     <semantic-metrics.version>0.4.2</semantic-metrics.version>
     <netty.version>4.0.27.Final</netty.version>
@@ -61,6 +62,7 @@
     <elasticsearch.version>1.7.1</elasticsearch.version>
     <joda-time.version>2.8.2</joda-time.version>
     <lombok.version>1.16.6</lombok.version>
+    <findbugs.version>3.0.1</findbugs.version>
   </properties>
 
   <dependencyManagement>
@@ -154,6 +156,11 @@
         <version>${project.version}</version>
       </dependency>
       <dependency>
+        <groupId>com.spotify.heroic.consumer</groupId>
+        <artifactId>heroic-consumer-collectd</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.spotify.heroic.aggregationcache</groupId>
         <artifactId>heroic-aggregationcache-cassandra2</artifactId>
         <version>${project.version}</version>
@@ -161,11 +168,6 @@
       <dependency>
         <groupId>com.spotify.heroic.statistics</groupId>
         <artifactId>heroic-statistics-semantic</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.spotify.heroic.rpc</groupId>
-        <artifactId>heroic-rpc-httprpc</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -234,7 +236,12 @@
       <dependency>
         <groupId>com.google.code.findbugs</groupId>
         <artifactId>jsr305</artifactId>
-        <version>2.0.3</version>
+        <version>${findbugs.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.code.findbugs</groupId>
+        <artifactId>annotations</artifactId>
+        <version>${findbugs.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.commons</groupId>
@@ -423,31 +430,6 @@
         <artifactId>org.apache.onami.scheduler</artifactId>
         <version>1.4.0</version>
       </dependency>
-      <!-- used by com.spotify.heroic.statistics.semantic
-           TODO: break out -->
-      <dependency>
-        <groupId>com.spotify.metrics</groupId>
-        <artifactId>semantic-metrics-core</artifactId>
-        <version>${semantic-metrics.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-
-      <dependency>
-        <groupId>com.spotify.metrics</groupId>
-        <artifactId>semantic-metrics-ffwd-reporter</artifactId>
-        <version>${semantic-metrics.version}</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
       <!-- used by: com.spotify.heroic.consumer.kafka -->
       <dependency>
         <groupId>org.apache.kafka</groupId>
@@ -548,7 +530,7 @@
       <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
-        <version>1.9.5</version>
+        <version>2.0.31-beta</version>
         <scope>test</scope>
       </dependency>
     </dependencies>
@@ -556,6 +538,39 @@
 
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>2.13</version>
+        <configuration>
+          <configLocation>checkstyle.xml</configLocation>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+          <failsOnError>true</failsOnError>
+          <maxAllowedViolations>0</maxAllowedViolations>
+          <propertyExpansion>basedir=${user.dir}</propertyExpansion>
+        </configuration>
+        <executions>
+          <execution>
+            <id>validate</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <failOnViolation>true</failOnViolation>
+              <failsOnError>true</failsOnError>
+            </configuration>
+          </execution>
+        </executions>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>6.13</version>
+          </dependency>
+        </dependencies>
+      </plugin>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.1</version>
@@ -637,14 +652,17 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>findbugs-maven-plugin</artifactId>
-          <version>2.5.2</version>
+          <version>3.0.3</version>
           <configuration>
+            <failOnError>true</failOnError>
             <effort>Max</effort>
-            <threshold>Default</threshold>
+            <threshold>High</threshold>
             <xmlOutput>true</xmlOutput>
           </configuration>
           <executions>
             <execution>
+              <id>analyze-compile</id>
+              <phase>compile</phase>
               <goals>
                 <goal>check</goal>
               </goals>

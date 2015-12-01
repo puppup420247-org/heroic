@@ -21,17 +21,27 @@
 
 package com.spotify.heroic.http;
 
-import lombok.Data;
+import javax.ws.rs.core.Response;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
-@Data
+@RequiredArgsConstructor
 public class ErrorMessage {
+    @Getter
     private final String message;
+    @Getter
+    private final String reason;
+    @Getter
+    private final int status;
 
-    @JsonCreator
-    public static ErrorMessage create(@JsonProperty("message") String message) {
-        return new ErrorMessage(message);
+    public ErrorMessage(final String message, final Response.Status status) {
+        this.message = message;
+        this.reason = status.getReasonPhrase();
+        this.status = status.getStatusCode();
+    }
+
+    public String getType() {
+        return "error";
     }
 }

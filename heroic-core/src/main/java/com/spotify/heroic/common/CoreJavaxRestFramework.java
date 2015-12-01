@@ -27,12 +27,11 @@ import javax.ws.rs.container.ConnectionCallback;
 import javax.ws.rs.container.TimeoutHandler;
 import javax.ws.rs.core.Response;
 
-import lombok.extern.slf4j.Slf4j;
-
-import com.spotify.heroic.http.ErrorMessage;
+import com.spotify.heroic.http.InternalErrorMessage;
 
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.FutureDone;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public final class CoreJavaxRestFramework implements JavaxRestFramework {
@@ -56,22 +55,28 @@ public final class CoreJavaxRestFramework implements JavaxRestFramework {
             public void failed(Throwable e) throws Exception {
                 log.error("Request failed", e);
                 response.resume(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                        .entity(new ErrorMessage(e.getMessage())).build());
+                        .entity(new InternalErrorMessage(e.getMessage(),
+                                Response.Status.INTERNAL_SERVER_ERROR))
+                        .build());
             }
 
             @Override
             public void resolved(T result) throws Exception {
-                if (response.isDone())
+                if (response.isDone()) {
                     return;
+                }
 
-                response.resume(Response.status(Response.Status.OK).entity(resume.resume(result)).build());
+                response.resume(
+                        Response.status(Response.Status.OK).entity(resume.resume(result)).build());
             }
 
             @Override
             public void cancelled() throws Exception {
                 log.error("Request cancelled");
                 response.resume(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                        .entity(new ErrorMessage("request cancelled")).build());
+                        .entity(new InternalErrorMessage("request cancelled",
+                                Response.Status.INTERNAL_SERVER_ERROR))
+                        .build());
             }
         });
 
@@ -104,12 +109,13 @@ public final class CoreJavaxRestFramework implements JavaxRestFramework {
         });
     }
 
-    static final Resume<? extends Object, ? extends Object> PASSTHROUGH = new Resume<Object, Object>() {
-        @Override
-        public Object resume(Object value) throws Exception {
-            return value;
-        }
-    };
+    static final Resume<? extends Object, ? extends Object> PASSTHROUGH =
+            new Resume<Object, Object>() {
+                @Override
+                public Object resume(Object value) throws Exception {
+                    return value;
+                }
+            };
 
     @Override
     @SuppressWarnings("unchecked")

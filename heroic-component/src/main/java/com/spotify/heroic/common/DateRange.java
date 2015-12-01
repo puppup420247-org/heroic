@@ -25,9 +25,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.sql.Date;
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-
 import org.apache.commons.lang3.time.FastDateFormat;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -35,12 +32,15 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import eu.toolchain.serializer.AutoSerialize;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @AutoSerialize
 @Data
 @EqualsAndHashCode(of = { "start", "end" })
 public class DateRange implements Comparable<DateRange> {
-    private static final FastDateFormat FORMAT = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss.SSS");
+    private static final FastDateFormat FORMAT =
+            FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss.SSS");
 
     private final long start;
     private final long end;
@@ -49,7 +49,8 @@ public class DateRange implements Comparable<DateRange> {
         checkArgument(start >= 0, "start must be a positive number");
 
         if (end < start) {
-            throw new IllegalArgumentException(String.format("start (%d) must come before end (%d)", start, end));
+            throw new IllegalArgumentException(
+                    String.format("start (%d) must come before end (%d)", start, end));
         }
 
         this.start = start;
@@ -69,6 +70,11 @@ public class DateRange implements Comparable<DateRange> {
         return diff() == 0;
     }
 
+    @JsonIgnore
+    public boolean isNotEmpty() {
+        return !isEmpty();
+    }
+
     public long diff() {
         return end - start;
     }
@@ -80,10 +86,11 @@ public class DateRange implements Comparable<DateRange> {
      * @return Rounded date range.
      */
     public DateRange rounded(long interval) {
-        if (interval <= 0)
+        if (interval <= 0) {
             return this;
+        }
 
-        return new DateRange(start - start % interval, end - end % interval);
+        return new DateRange(start - start % interval, end + (interval - end % interval));
     }
 
     public boolean overlap(DateRange other) {
@@ -116,8 +123,8 @@ public class DateRange implements Comparable<DateRange> {
     /**
      * Modify this range with another range.
      *
-     * A modification asserts that the new range is a subset of the current range. Any span which would cause the new
-     * range to become out of bounds will be cropped.
+     * A modification asserts that the new range is a subset of the current range. Any span which
+     * would cause the new range to become out of bounds will be cropped.
      *
      * @param range The constraints to modify this range against.
      * @return A new range representing the modified range.
@@ -126,8 +133,15 @@ public class DateRange implements Comparable<DateRange> {
         return modify(range.getStart(), range.getEnd());
     }
 
+    /**
+     * Modify the date range so that it fits within the given range (start - end).
+     *
+     * @param start Start value to fit this range into.
+     * @param end End value (exclusive) to fit this range into.
+     * @return A modified date range that fits within the given range.
+     */
     public DateRange modify(long start, long end) {
-        return new DateRange(Math.max(this.start, start), Math.min(this.end, end));
+        return new DateRange(Math.max(this.start, start), Math.min(this.end, end - 1));
     }
 
     public DateRange start(long start) {
@@ -136,17 +150,6 @@ public class DateRange implements Comparable<DateRange> {
 
     public DateRange end(long end) {
         return new DateRange(this.start, end);
-    }
-
-    public DateRange shiftStart(long extent) {
-        if (extent == 0)
-            return this;
-
-        return new DateRange(Math.max(start + extent, 0), end);
-    }
-
-    public DateRange shiftEnd(long extent) {
-        return new DateRange(start, Math.max(end + extent, 0));
     }
 
     public DateRange shift(long extent) {

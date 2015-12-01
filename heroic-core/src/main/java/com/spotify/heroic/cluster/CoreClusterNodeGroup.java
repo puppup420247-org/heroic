@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.cluster;
 
 import java.util.ArrayList;
@@ -5,7 +26,8 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
-import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.aggregation.AggregationInstance;
 import com.spotify.heroic.cluster.ClusterNode.Group;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.RangeFilter;
@@ -17,7 +39,6 @@ import com.spotify.heroic.metadata.FindKeys;
 import com.spotify.heroic.metadata.FindSeries;
 import com.spotify.heroic.metadata.FindTags;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.metric.QueryTrace;
 import com.spotify.heroic.metric.ResultGroups;
 import com.spotify.heroic.metric.WriteMetric;
@@ -35,8 +56,10 @@ import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class CoreClusterNodeGroup implements ClusterNodeGroup {
-    public static final QueryTrace.Identifier QUERY_NODE = QueryTrace.identifier(CoreClusterNodeGroup.class, "query_node");
-    public static final QueryTrace.Identifier QUERY = QueryTrace.identifier(CoreClusterNodeGroup.class, "query");
+    public static final QueryTrace.Identifier QUERY_NODE =
+            QueryTrace.identifier(CoreClusterNodeGroup.class, "query_node");
+    public static final QueryTrace.Identifier QUERY =
+            QueryTrace.identifier(CoreClusterNodeGroup.class, "query");
 
     private final AsyncFramework async;
     private final Collection<ClusterNode.Group> entries;
@@ -52,8 +75,8 @@ public class CoreClusterNodeGroup implements ClusterNodeGroup {
     }
 
     @Override
-    public AsyncFuture<ResultGroups> query(MetricType source, Filter filter,
-            DateRange range, Aggregation aggregation, QueryOptions options) {
+    public AsyncFuture<ResultGroups> query(MetricType source, Filter filter, DateRange range,
+            AggregationInstance aggregation, QueryOptions options) {
         final List<AsyncFuture<ResultGroups>> futures = new ArrayList<>(entries.size());
 
         for (final ClusterNode.Group g : entries) {
@@ -131,18 +154,21 @@ public class CoreClusterNodeGroup implements ClusterNodeGroup {
     }
 
     @Override
-    public AsyncFuture<TagSuggest> tagSuggest(RangeFilter filter, MatchOptions options, String key, String value) {
+    public AsyncFuture<TagSuggest> tagSuggest(RangeFilter filter, MatchOptions options, String key,
+            String value) {
         final List<AsyncFuture<TagSuggest>> futures = new ArrayList<>(entries.size());
 
         for (final ClusterNode.Group g : entries) {
-            futures.add(g.tagSuggest(filter, options, key, value).catchFailed(TagSuggest.nodeError(g)));
+            futures.add(
+                    g.tagSuggest(filter, options, key, value).catchFailed(TagSuggest.nodeError(g)));
         }
 
         return async.collect(futures, TagSuggest.reduce(filter.getLimit()));
     }
 
     @Override
-    public AsyncFuture<KeySuggest> keySuggest(RangeFilter filter, MatchOptions options, String key) {
+    public AsyncFuture<KeySuggest> keySuggest(RangeFilter filter, MatchOptions options,
+            String key) {
         final List<AsyncFuture<KeySuggest>> futures = new ArrayList<>(entries.size());
 
         for (final ClusterNode.Group g : entries) {
@@ -153,11 +179,13 @@ public class CoreClusterNodeGroup implements ClusterNodeGroup {
     }
 
     @Override
-    public AsyncFuture<TagValuesSuggest> tagValuesSuggest(RangeFilter filter, List<String> exclude, int groupLimit) {
+    public AsyncFuture<TagValuesSuggest> tagValuesSuggest(RangeFilter filter, List<String> exclude,
+            int groupLimit) {
         final List<AsyncFuture<TagValuesSuggest>> futures = new ArrayList<>(entries.size());
 
         for (final ClusterNode.Group g : entries) {
-            futures.add(g.tagValuesSuggest(filter, exclude, groupLimit).catchFailed(TagValuesSuggest.nodeError(g)));
+            futures.add(g.tagValuesSuggest(filter, exclude, groupLimit)
+                    .catchFailed(TagValuesSuggest.nodeError(g)));
         }
 
         return async.collect(futures, TagValuesSuggest.reduce(filter.getLimit(), groupLimit));

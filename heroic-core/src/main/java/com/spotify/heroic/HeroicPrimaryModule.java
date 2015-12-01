@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic;
 
 import java.net.InetSocketAddress;
@@ -10,6 +31,7 @@ import java.util.TreeMap;
 import javax.inject.Named;
 import javax.inject.Singleton;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.module.SimpleModule;
@@ -19,7 +41,7 @@ import com.google.inject.Inject;
 import com.google.inject.Provides;
 import com.google.inject.Scopes;
 import com.spotify.heroic.aggregation.Aggregation;
-import com.spotify.heroic.aggregation.AggregationQuery;
+import com.spotify.heroic.aggregation.AggregationInstance;
 import com.spotify.heroic.aggregation.AggregationSerializer;
 import com.spotify.heroic.aggregation.CoreAggregationRegistry;
 import com.spotify.heroic.common.CollectingTypeListener;
@@ -127,13 +149,15 @@ public class HeroicPrimaryModule extends AbstractModule {
     @Singleton
     @Named(HeroicCore.APPLICATION_JSON_INTERNAL)
     @Inject
-    public ObjectMapper internalMapper(FilterJsonSerializer serializer, FilterJsonDeserializer deserializer,
-            AggregationSerializer aggregationSerializer) {
+    public ObjectMapper internalMapper(FilterJsonSerializer serializer,
+            FilterJsonDeserializer deserializer, AggregationSerializer aggregationSerializer) {
         final SimpleModule module = new SimpleModule("custom");
 
         final FilterJsonSerializerImpl serializerImpl = (FilterJsonSerializerImpl) serializer;
-        final FilterJsonDeserializerImpl deserializerImpl = (FilterJsonDeserializerImpl) deserializer;
-        final CoreAggregationRegistry aggregationRegistry = (CoreAggregationRegistry) aggregationSerializer;
+        final FilterJsonDeserializerImpl deserializerImpl =
+                (FilterJsonDeserializerImpl) deserializer;
+        final CoreAggregationRegistry aggregationRegistry =
+                (CoreAggregationRegistry) aggregationSerializer;
 
         deserializerImpl.configure(module);
         serializerImpl.configure(module);
@@ -141,14 +165,17 @@ public class HeroicPrimaryModule extends AbstractModule {
 
         final ObjectMapper mapper = new ObjectMapper();
 
+        mapper.addMixIn(AggregationInstance.class, TypeNameMixin.class);
         mapper.addMixIn(Aggregation.class, TypeNameMixin.class);
-        mapper.addMixIn(AggregationQuery.class, TypeNameMixin.class);
 
         mapper.registerModule(module);
         mapper.registerModule(serializerModule());
-        mapper.registerModule(new Jdk8Module());
+        mapper.registerModule(new Jdk8Module().configureAbsentsAsNulls(true));
+        mapper.registerModule(HeroicLoadingModule.serialization());
 
         mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+
         return mapper;
     }
 
@@ -156,7 +183,8 @@ public class HeroicPrimaryModule extends AbstractModule {
     @Singleton
     @Named(HeroicCore.APPLICATION_JSON)
     @Inject
-    public ObjectMapper jsonMapper(@Named(HeroicCore.APPLICATION_JSON_INTERNAL) ObjectMapper mapper) {
+    public ObjectMapper jsonMapper(
+            @Named(HeroicCore.APPLICATION_JSON_INTERNAL) ObjectMapper mapper) {
         return mapper;
     }
 
@@ -172,7 +200,8 @@ public class HeroicPrimaryModule extends AbstractModule {
             bind(HeroicStartupPinger.class).toInstance(pinger.get());
         }
 
-        bindListener(new IsSubclassOf(LifeCycle.class), new CollectingTypeListener<LifeCycle>(lifeCycles));
+        bindListener(new IsSubclassOf(LifeCycle.class),
+                new CollectingTypeListener<LifeCycle>(lifeCycles));
     }
 
     public static SimpleModule serializerModule() {
@@ -190,8 +219,10 @@ public class HeroicPrimaryModule extends AbstractModule {
         module.addSerializer(MetricGroup.class, new MetricGroupSerialization.Serializer());
         module.addDeserializer(MetricGroup.class, new MetricGroupSerialization.Deserializer());
 
-        module.addSerializer(MetricCollection.class, new MetricCollectionSerialization.Serializer());
-        module.addDeserializer(MetricCollection.class, new MetricCollectionSerialization.Deserializer());
+        module.addSerializer(MetricCollection.class,
+                new MetricCollectionSerialization.Serializer());
+        module.addDeserializer(MetricCollection.class,
+                new MetricCollectionSerialization.Deserializer());
 
         module.addSerializer(MetricType.class, new MetricTypeSerialization.Serializer());
         module.addDeserializer(MetricType.class, new MetricTypeSerialization.Deserializer());

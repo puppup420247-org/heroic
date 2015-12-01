@@ -21,47 +21,62 @@
 
 package com.spotify.heroic.grammar;
 
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Iterators;
+import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.aggregation.AggregationFactory;
+
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 @ValueName("aggregation")
 @Data
+@EqualsAndHashCode(exclude = {"c"})
 public class AggregationValue implements Value {
     private final String name;
-    private final List<Value> arguments;
+    private final ListValue arguments;
     private final Map<String, Value> keywordArguments;
+    private final Context c;
 
     @Override
-    public Value sub(Value other) {
-        throw new IllegalArgumentException(String.format("%s: does not support subtraction", this));
-    }
-
-    @Override
-    public Value add(Value other) {
-        throw new IllegalArgumentException(String.format("%s: does not support addition", this));
-    }
-
-    public String toString() {
-        return "<aggregation:" + name + ":" + arguments + ":" + keywordArguments + ">";
+    public Context context() {
+        return c;
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(T to) {
-        if (to instanceof AggregationValue)
+        if (to instanceof AggregationValue) {
             return (T) this;
+        }
 
-        throw new ValueCastException(this, to);
+        throw c.castError(this, to);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> T cast(Class<T> to) {
-        if (to.isAssignableFrom(AggregationValue.class))
+        if (to.isAssignableFrom(AggregationValue.class)) {
             return (T) this;
+        }
 
-        throw new ValueTypeCastException(this, to);
+        throw c.castError(this, to);
+    }
+
+    @Override
+    public String toString() {
+        final Joiner args = Joiner.on(", ");
+        final Iterator<String> a =
+                this.arguments.getList().stream().map(v -> v.toString()).iterator();
+        final Iterator<String> k = keywordArguments.entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue()).iterator();
+        return "" + name + "(" + args.join(Iterators.concat(a, k)) + ")";
+    }
+
+    public Aggregation build(final AggregationFactory aggregations) {
+        return aggregations.build(name, arguments, keywordArguments);
     }
 }

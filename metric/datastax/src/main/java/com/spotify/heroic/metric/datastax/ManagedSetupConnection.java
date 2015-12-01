@@ -27,12 +27,14 @@ import java.util.concurrent.Callable;
 
 import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.ConsistencyLevel;
-import com.datastax.driver.core.HostDistance;
 import com.datastax.driver.core.PoolingOptions;
 import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SocketOptions;
-import com.datastax.driver.core.policies.ConstantReconnectionPolicy;
+import com.datastax.driver.core.policies.RetryPolicy;
+import com.datastax.driver.core.policies.RoundRobinPolicy;
+import com.datastax.driver.core.policies.TokenAwarePolicy;
+import com.spotify.heroic.common.Duration;
 import com.spotify.heroic.metric.datastax.schema.Schema;
 
 import eu.toolchain.async.AsyncFramework;
@@ -43,13 +45,17 @@ import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 
 @RequiredArgsConstructor
-@ToString(of = { "seeds" })
+@ToString(of = {"seeds"})
 @Slf4j
 public class ManagedSetupConnection implements ManagedSetup<Connection> {
     private final AsyncFramework async;
     private final Collection<InetSocketAddress> seeds;
-    private final boolean configure;
     private final Schema schema;
+    private final boolean configure;
+    private final int fetchSize;
+    private final Duration readTimeout;
+    private final ConsistencyLevel consistencyLevel;
+    private final RetryPolicy retryPolicy;
 
     public AsyncFuture<Connection> construct() {
         AsyncFuture<Session> session = async.call(new Callable<Session>() {
@@ -58,17 +64,19 @@ public class ManagedSetupConnection implements ManagedSetup<Connection> {
                 final PoolingOptions pooling = new PoolingOptions();
 
                 final QueryOptions queryOptions = new QueryOptions()
-                    .setFetchSize(1000)
-                    .setConsistencyLevel(ConsistencyLevel.ONE);
+                    .setFetchSize(fetchSize)
+                    .setConsistencyLevel(consistencyLevel);
 
-                final SocketOptions socketOptions = new SocketOptions();
+                final SocketOptions socketOptions = new SocketOptions()
+                    .setReadTimeoutMillis((int) readTimeout.toMilliseconds());
 
                 final Cluster cluster = Cluster.builder()
                     .addContactPointsWithPorts(seeds)
-                    .withReconnectionPolicy(new ConstantReconnectionPolicy(100L))
+                    .withRetryPolicy(retryPolicy)
                     .withPoolingOptions(pooling)
                     .withQueryOptions(queryOptions)
                     .withSocketOptions(socketOptions)
+                    .withLoadBalancingPolicy(new TokenAwarePolicy(new RoundRobinPolicy()))
                     .build();
                 // @formatter:on
 

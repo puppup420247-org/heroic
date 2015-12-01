@@ -21,19 +21,19 @@
 
 package com.spotify.heroic.http.query;
 
+import static com.spotify.heroic.common.Optionals.firstPresent;
 import static java.util.Optional.ofNullable;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.aggregation.AggregationQuery;
-import com.spotify.heroic.aggregation.ChainAggregationQuery;
-import com.spotify.heroic.aggregation.EmptyAggregationQuery;
+import com.spotify.heroic.QueryDateRange;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.aggregation.Chain;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.metric.MetricType;
 
@@ -41,36 +41,53 @@ import lombok.Data;
 
 @Data
 public class QueryMetrics {
-    private static final QueryDateRange DEFAULT_DATE_RANGE = new QueryDateRange.Relative(TimeUnit.DAYS, 7);
-    private static final Map<String, String> DEFAULT_TAGS = new HashMap<String, String>();
-    private static final boolean DEFAULT_NO_CACHE = false;
-
     private final Optional<String> query;
-    private final Optional<String> key;
-    private final Map<String, String> tags;
+    private final Optional<Aggregation> aggregation;
+    private final Optional<MetricType> source;
+    private final Optional<QueryDateRange> range;
     private final Optional<Filter> filter;
+    private final Optional<QueryOptions> options;
+
+    /* legacy state */
+    private final Optional<String> key;
+    private final Optional<Map<String, String>> tags;
     private final Optional<List<String>> groupBy;
-    private final QueryDateRange range;
-    private final boolean noCache;
-    private final AggregationQuery aggregators;
-    private final MetricType source;
+
+    public QueryMetrics(Optional<String> query, Optional<Aggregation> aggregation,
+            Optional<MetricType> source, Optional<QueryDateRange> range, Optional<Filter> filter,
+            Optional<QueryOptions> options) {
+        this.query = query;
+        this.aggregation = aggregation;
+        this.source = source;
+        this.range = range;
+        this.filter = filter;
+        this.options = options;
+
+        this.key = Optional.empty();
+        this.tags = Optional.empty();
+        this.groupBy = Optional.empty();
+    }
 
     @JsonCreator
-    public QueryMetrics(@JsonProperty("query") String query, @JsonProperty("key") String key,
-            @JsonProperty("tags") Map<String, String> tags, @JsonProperty("filter") Filter filter,
-            @JsonProperty("groupBy") List<String> groupBy, @JsonProperty("range") QueryDateRange range,
-            @JsonProperty("noCache") Boolean noCache, @JsonProperty("aggregators") List<AggregationQuery> aggregators,
-            @JsonProperty("source") String source) {
+    public QueryMetrics(@JsonProperty("query") String query,
+            @JsonProperty("aggregation") Aggregation aggregation,
+            @JsonProperty("aggregators") List<Aggregation> aggregators,
+            @JsonProperty("source") String source, @JsonProperty("range") QueryDateRange range,
+            @JsonProperty("filter") Filter filter, @JsonProperty("key") String key,
+            @JsonProperty("tags") Map<String, String> tags,
+            @JsonProperty("groupBy") List<String> groupBy,
+            @JsonProperty("options") QueryOptions options,
+            /* ignored */ @JsonProperty("noCache") Boolean noCache) {
         this.query = ofNullable(query);
-        this.key = ofNullable(key);
-        this.tags = ofNullable(tags).orElse(DEFAULT_TAGS);
+        this.aggregation = firstPresent(ofNullable(aggregation),
+                ofNullable(aggregators).filter(c -> !c.isEmpty()).map(Chain::new));
+        this.source = MetricType.fromIdentifier(source);
+        this.range = ofNullable(range);
         this.filter = ofNullable(filter);
+        this.options = ofNullable(options);
+
+        this.key = ofNullable(key);
+        this.tags = ofNullable(tags);
         this.groupBy = ofNullable(groupBy);
-        this.range = ofNullable(range).orElse(DEFAULT_DATE_RANGE);
-        this.noCache = ofNullable(noCache).orElse(DEFAULT_NO_CACHE);
-        this.aggregators = ofNullable(aggregators).filter(c -> !c.isEmpty())
-                .<AggregationQuery> map(chain -> new ChainAggregationQuery(chain))
-                .orElseGet(EmptyAggregationQuery::new);
-        this.source = MetricType.fromIdentifier(source).orElse(MetricType.POINT);
     }
 }

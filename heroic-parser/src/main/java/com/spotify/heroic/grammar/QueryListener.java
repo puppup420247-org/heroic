@@ -22,10 +22,8 @@
 package com.spotify.heroic.grammar;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Stack;
 import java.util.concurrent.TimeUnit;
@@ -36,59 +34,78 @@ import org.antlr.v4.runtime.tree.ParseTree;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.spotify.heroic.common.DateRange;
+import com.google.common.collect.Lists;
+import com.spotify.heroic.Query;
+import com.spotify.heroic.QueryDateRange;
+import com.spotify.heroic.aggregation.Aggregation;
+import com.spotify.heroic.aggregation.AggregationFactory;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.filter.FilterFactory;
-import com.spotify.heroic.grammar.HeroicQueryParser.AbsoluteContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.AggregationArgsContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.AggregationByAllContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.AggregationByContext;
 import com.spotify.heroic.grammar.HeroicQueryParser.AggregationContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.BooleanExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.DiffContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.EqExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.FilterContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.FilterExprsContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.AggregationPipeContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.ExpressionDurationContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.ExpressionIntegerContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.ExpressionListContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.ExpressionMinusContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.ExpressionNowContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.ExpressionPlusContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterAndContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterBooleanContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterEqContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterHasContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterInContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterKeyEqContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterKeyNotEqContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterNotContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterNotEqContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterNotInContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterNotPrefixContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterNotRegexContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterOrContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterPrefixContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.FilterRegexContext;
 import com.spotify.heroic.grammar.HeroicQueryParser.FromContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.GroupByContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.HasExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.InExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.IntegerContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.KeyEqExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.KeyNotEqExprContext;
 import com.spotify.heroic.grammar.HeroicQueryParser.KeyValueContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.ListContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.NotEqExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.NotExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.NotInExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.NotPrefixExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.NotRegexExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.NowContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.PrefixExprContext;
 import com.spotify.heroic.grammar.HeroicQueryParser.QueriesContext;
 import com.spotify.heroic.grammar.HeroicQueryParser.QueryContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.RegexExprContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.RelativeContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.SelectContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.SelectAggregationContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.SelectAllContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.SourceRangeAbsoluteContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.SourceRangeRelativeContext;
 import com.spotify.heroic.grammar.HeroicQueryParser.StringContext;
-import com.spotify.heroic.grammar.HeroicQueryParser.ValueExprContext;
+import com.spotify.heroic.grammar.HeroicQueryParser.WhereContext;
+import com.spotify.heroic.metric.MetricType;
 
 import lombok.Data;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 @SuppressWarnings("unchecked")
 @RequiredArgsConstructor
 public class QueryListener extends HeroicQueryBaseListener {
     private final FilterFactory filters;
+    private final AggregationFactory aggregations;
     private final long now;
 
     private static final Object QUERIES_MARK = new Object();
-    private static final Object GROUPBY_MARK = new Object();
     private static final Object LIST_MARK = new Object();
-    private static final Object AGGREGATION_ARGUMENTS_MARK = new Object();
-    private static final Object QUERY_MARK = new Object();
+    private static final Object AGGREGAITON_DEF = new Object();
 
-    @Getter
-    private final List<QueryDSL> queries = new ArrayList<>();
+    public static final Object EMPTY = new Object();
+    public static final Object NOT_EMPTY = new Object();
+
+    public static final Object QUERY_MARK = new Object();
+    public static final Object GROUP_BY_MARK = new Object();
+    public static final Object SELECT_MARK = new Object();
+    public static final Object WHERE_MARK = new Object();
+    public static final Object FROM_MARK = new Object();
+
+    public static final Object PIPE_MARK = new Object();
+
+    public static final String GROUP = "group";
+    public static final String CHAIN = "chain";
+
     private final Stack<Object> stack = new Stack<>();
 
     @Override
@@ -98,9 +115,9 @@ public class QueryListener extends HeroicQueryBaseListener {
 
     @Override
     public void exitQueries(QueriesContext ctx) {
-        final ContextImpl c = new ContextImpl(ctx);
+        final Context c = context(ctx);
 
-        final List<QueryDSL> list = new ArrayList<>();
+        final List<Query> list = new ArrayList<>();
 
         while (true) {
             if (stack.peek() == QUERIES_MARK) {
@@ -108,7 +125,7 @@ public class QueryListener extends HeroicQueryBaseListener {
                 break;
             }
 
-            list.add(pop(c, QueryDSL.class));
+            list.add(pop(c, Query.class));
         }
 
         push(new Queries(list));
@@ -121,12 +138,12 @@ public class QueryListener extends HeroicQueryBaseListener {
 
     @Override
     public void exitQuery(QueryContext ctx) {
-        SelectDSL select = null;
-        FromDSL source = null;
-        Filter where = null;
-        GroupByDSL groupBy = null;
+        Optional<Aggregation> aggregation = Optional.empty();
+        Optional<MetricType> source = Optional.empty();
+        Optional<QueryDateRange> range = Optional.empty();
+        Optional<Filter> where = Optional.empty();
 
-        final Context c = new ContextImpl(ctx);
+        final Context c = context(ctx);
 
         while (true) {
             final Object mark = stack.pop();
@@ -135,411 +152,349 @@ public class QueryListener extends HeroicQueryBaseListener {
                 break;
             }
 
-            if (mark instanceof SelectDSL) {
-                select = (SelectDSL) mark;
+            if (mark == SELECT_MARK) {
+                aggregation = popOptional(Aggregation.class);
                 continue;
             }
 
-            if (mark instanceof FromDSL) {
-                source = (FromDSL) mark;
+            if (mark == WHERE_MARK) {
+                where = Optional.of(pop(Filter.class));
                 continue;
             }
 
-            if (mark instanceof Filter) {
-                where = (Filter) mark;
-                continue;
-            }
-
-            if (mark instanceof GroupByDSL) {
-                groupBy = (GroupByDSL) mark;
+            if (mark == FROM_MARK) {
+                source = Optional.of(pop(MetricType.class));
+                range = popOptional(QueryDateRange.class);
                 continue;
             }
 
             throw c.error(String.format("expected part of query, but got %s", mark));
         }
 
-        if (select == null) {
-            throw c.error("No select clause available");
-        }
-
         if (source == null) {
             throw c.error("No source clause available");
         }
 
-        push(new QueryDSL(select, source, Optional.ofNullable(where), Optional.ofNullable(groupBy)));
+        push(new Query(aggregation, source, range, where, Optional.empty(), Optional.empty()));
     }
 
     @Override
-    public void exitNow(NowContext ctx) {
-        push(new IntValue(now));
+    public void exitExpressionNow(ExpressionNowContext ctx) {
+        push(new IntValue(now, context(ctx)));
     }
 
     @Override
-    public void exitValueExpr(ValueExprContext ctx) {
-        if (ctx.getChildCount() == 1)
-            return;
-
-        final ContextImpl c = new ContextImpl(ctx);
-
-        final Value right = pop(c, Value.class);
-        final Value left = pop(c, Value.class);
-
-        final ParseTree child = ctx.getChild(1);
-
-        if (child.getPayload() instanceof CommonToken) {
-            final CommonToken op = (CommonToken) child.getPayload();
-
-            try {
-                if (op.getType() == HeroicQueryLexer.Plus) {
-                    push(left.add(right));
-                    return;
-                }
-
-                if (op.getType() == HeroicQueryLexer.Minus) {
-                    push(left.sub(right));
-                    return;
-                }
-            } catch (Exception e) {
-                throw c.error(e);
-            }
-        }
-
-        throw c.error("invalid operation: " + child.getText());
+    public void exitExpressionMinus(ExpressionMinusContext ctx) {
+        final Context c = context(ctx);
+        final Value b = pop(c, Value.class);
+        final Value a = pop(c, Value.class);
+        push(a.sub(b));
     }
 
     @Override
-    public void exitInExpr(InExprContext ctx) {
-        final ContextImpl c = new ContextImpl(ctx);
+    public void exitExpressionPlus(ExpressionPlusContext ctx) {
+        final Context c = context(ctx);
+        final Value b = pop(c, Value.class);
+        final Value a = pop(c, Value.class);
+        push(a.add(b));
+    }
 
-        final ListValue list = pop(c, ListValue.class);
+    @Override
+    public void exitFilterIn(FilterInContext ctx) {
+        final Context c = context(ctx);
+        final Value match = pop(c, Value.class);
         final StringValue key = pop(c, StringValue.class);
 
-        final List<Filter> values = new ArrayList<>();
-
-        for (final Value v : list.getList())
-            values.add(filters.matchTag(key.getString(), v.cast(String.class)));
-
-        push(filters.or(values));
+        push(filters.or(buildIn(c, key, match)));
     }
 
     @Override
-    public void exitNotInExpr(NotInExprContext ctx) {
-        final ContextImpl c = new ContextImpl(ctx);
-
-        final ListValue list = pop(c, ListValue.class);
+    public void exitFilterNotIn(FilterNotInContext ctx) {
+        final Context c = context(ctx);
+        final ListValue match = pop(c, ListValue.class);
         final StringValue key = pop(c, StringValue.class);
 
-        final List<Filter> values = new ArrayList<>();
-
-        for (final Value v : list.getList())
-            values.add(filters.matchTag(key.getString(), v.cast(String.class)));
-
-        push(filters.not(filters.or(values)));
+        push(filters.not(filters.or(buildIn(c, key, match))));
     }
 
     @Override
-    public void exitSelect(SelectContext ctx) {
-        final ParseTree child = ctx.getChild(0);
-        final Context c = new ContextImpl(ctx);
-        final Optional<AggregationValue> aggregation = buildAggregation(c, child);
-        push(new SelectDSL(c, aggregation));
-    }
-
-    Optional<AggregationValue> buildAggregation(final Context c, final ParseTree child) {
-        if (!(child.getPayload() instanceof ValueExprContext)) {
-            return Optional.empty();
-        }
-
-        final Value value = pop(c, Value.class);
-
-        if (value instanceof AggregationValue) {
-            return Optional.of((AggregationValue) value);
-        }
-
-        if (value instanceof StringValue) {
-            final StringValue name = (StringValue) value;
-            final List<Value> arguments = new ArrayList<>();
-            final Map<String, Value> keywordArguments = new HashMap<>();
-            return Optional.of(new AggregationValue(name.getString(), arguments, keywordArguments));
-        }
-
-        throw c.error(String.format("expected aggregation, but was %s", name(AggregationValue.class), value.toString()));
+    public void exitSelectAll(final SelectAllContext ctx) {
+        pushOptional(Optional.empty());
+        push(SELECT_MARK);
     }
 
     @Override
-    public void exitFilter(FilterContext ctx) {
-        final Context c = new ContextImpl(ctx);
+    public void exitSelectAggregation(final SelectAggregationContext ctx) {
+        final Context c = context(ctx);
+        pushOptional(pop(c, Value.class).toOptional()
+                .map(o -> o.cast(AggregationValue.class).build(aggregations)));
+        push(SELECT_MARK);
+    }
+
+    @Override
+    public void exitWhere(WhereContext ctx) {
+        final Context c = context(ctx);
         push(pop(c, Filter.class).optimize());
+        push(WHERE_MARK);
     }
 
     @Override
-    public void enterGroupBy(GroupByContext ctx) {
-        stack.push(GROUPBY_MARK);
-    }
-
-    @Override
-    public void exitGroupBy(GroupByContext ctx) {
-        final List<String> list = new ArrayList<>();
-
-        while (true) {
-            if (stack.peek() == GROUPBY_MARK) {
-                stack.pop();
-                break;
-            }
-
-            list.add(pop(new ContextImpl(ctx), StringValue.class).getString());
-        }
-
-        Collections.reverse(list);
-        push(new GroupByDSL(list));
-    }
-
-    @Override
-    public void enterList(ListContext ctx) {
+    public void enterExpressionList(ExpressionListContext ctx) {
         stack.push(LIST_MARK);
     }
 
     @Override
-    public void exitList(ListContext ctx) {
-        final List<Value> list = new ArrayList<>();
-
-        final Context c = new ContextImpl(ctx);
-
-        while (true) {
-            if (stack.peek() == LIST_MARK) {
-                stack.pop();
-                break;
-            }
-
-            list.add(pop(c, Value.class));
-        }
-
-        Collections.reverse(list);
-
-        stack.push(new ListValue(list));
+    public void exitExpressionList(ExpressionListContext ctx) {
+        final Context c = context(ctx);
+        stack.push(new ListValue(popUntil(c, LIST_MARK, Value.class), c));
     }
 
     @Override
-    public void enterAggregationArgs(AggregationArgsContext ctx) {
-        stack.push(AGGREGATION_ARGUMENTS_MARK);
+    public void enterAggregation(AggregationContext ctx) {
+        stack.push(AGGREGAITON_DEF);
     }
 
     @Override
-    public void exitAggregationArgs(AggregationArgsContext ctx) {
-        final List<Value> arguments = new ArrayList<>();
-        final Map<String, Value> keywordArguments = new HashMap<>();
+    public void exitAggregation(final AggregationContext ctx) {
+        final Context c = context(ctx);
 
-        final Context c = new ContextImpl(ctx);
+        final String name = ctx.getChild(0).getText();
 
-        while (true) {
-            final Object argument = stack.pop();
+        final ImmutableList.Builder<Value> arguments = ImmutableList.builder();
+        final ImmutableMap.Builder<String, Value> keywords = ImmutableMap.builder();
 
-            if (argument == AGGREGATION_ARGUMENTS_MARK) {
-                break;
-            }
+        while (stack.peek() != AGGREGAITON_DEF) {
+            final Object top = stack.pop();
 
-            if (argument instanceof KeywordValue) {
-                final KeywordValue kw = (KeywordValue) argument;
-                keywordArguments.put(kw.key, kw.value);
+            if (top instanceof KeywordValue) {
+                final KeywordValue kw = (KeywordValue) top;
+                keywords.put(kw.key, kw.value);
                 continue;
             }
 
-            if (!(argument instanceof Value)) {
-                throw c.error(String.format("expected value, but got %s", argument));
+            if (top instanceof Value) {
+                arguments.add((Value) top);
+                continue;
             }
 
-            arguments.add((Value) argument);
+            throw c.error(String.format("expected value, but got %s", top));
         }
 
-        Collections.reverse(arguments);
-        push(new AggregationArguments(arguments, keywordArguments));
-    }
+        stack.pop();
 
-    @Override
-    public void exitAggregation(AggregationContext ctx) {
-        final Context c = new ContextImpl(ctx);
-
-        final AggregationArguments arguments;
-
-        if (ctx.getChildCount() == 4) {
-            arguments = pop(c, AggregationArguments.class);
-        } else {
-            arguments = AggregationArguments.empty();
-        }
-
-        final StringValue name = pop(c, StringValue.class);
-        push(new AggregationValue(name.getString(), arguments.getPositional(), arguments.getKeywords()));
+        push(new AggregationValue(name, new ListValue(Lists.reverse(arguments.build()), c),
+                keywords.build(), c));
     }
 
     @Override
     public void exitKeyValue(KeyValueContext ctx) {
-        final Value value = pop(new ContextImpl(ctx), Value.class);
+        final Value value = pop(context(ctx), Value.class);
         stack.push(new KeywordValue(ctx.getChild(0).getText(), value));
     }
 
     @Override
     public void exitFrom(FromContext ctx) {
-        final ParseTree source = ctx.getChild(0);
+        final Context context = context(ctx);
 
-        final Context context = new ContextImpl(ctx);
+        final String sourceText = ctx.getChild(1).getText();
 
-        final Optional<DateRange> range;
+        final MetricType source = MetricType.fromIdentifier(sourceText)
+                .orElseThrow(() -> context.error("Invalid source (" + sourceText
+                        + "), must be one of " + MetricType.values()));
 
-        if (ctx.getChildCount() > 1) {
-            range = Optional.of(pop(context, DateRange.class));
+        final Optional<QueryDateRange> range;
+
+        if (ctx.getChildCount() > 2) {
+            range = Optional.of(pop(context, QueryDateRange.class));
         } else {
             range = Optional.empty();
         }
 
-        push(new FromDSL(context, source.getText(), range));
+        pushOptional(range);
+        push(source);
+        push(FROM_MARK);
     }
 
     @Override
-    public void exitAbsolute(AbsoluteContext ctx) {
-        final IntValue end = pop(new ContextImpl(ctx), IntValue.class);
-        final IntValue start = pop(new ContextImpl(ctx), IntValue.class);
-        push(new DateRange(start.getValue(), end.getValue()));
+    public void exitSourceRangeAbsolute(SourceRangeAbsoluteContext ctx) {
+        final IntValue end = pop(context(ctx), IntValue.class);
+        final IntValue start = pop(context(ctx), IntValue.class);
+        push(new QueryDateRange.Absolute(start.getValue(), end.getValue()));
     }
 
     @Override
-    public void exitRelative(RelativeContext ctx) {
-        final DiffValue diff = pop(new ContextImpl(ctx), DiffValue.class);
-        final long ms = TimeUnit.MILLISECONDS.convert(diff.getValue(), diff.getUnit());
-        push(new DateRange(now - ms, now));
+    public void exitSourceRangeRelative(SourceRangeRelativeContext ctx) {
+        final DurationValue diff = pop(context(ctx), DurationValue.class);
+        push(new QueryDateRange.Relative(diff.getUnit(), diff.getValue()));
     }
 
     @Override
-    public void exitInteger(IntegerContext ctx) {
-        push(new IntValue(Long.valueOf(ctx.getText())));
+    public void exitExpressionInteger(ExpressionIntegerContext ctx) {
+        push(new IntValue(Long.parseLong(ctx.getText()), context(ctx)));
     }
 
     @Override
     public void exitString(StringContext ctx) {
         final ParseTree child = ctx.getChild(0);
         final CommonToken token = (CommonToken) child.getPayload();
+        final Context c = context(ctx);
 
-        if (token.getType() == HeroicQueryLexer.SimpleString || token.getType() == HeroicQueryLexer.Identifier) {
-            push(new StringValue(child.getText()));
+        if (token.getType() == HeroicQueryLexer.SimpleString
+                || token.getType() == HeroicQueryLexer.Identifier) {
+            push(new StringValue(child.getText(), c));
             return;
         }
 
-        push(new StringValue(parseQuotedString(child.getText())));
+        push(new StringValue(parseQuotedString(child.getText()), c));
     }
 
     @Override
-    public void exitDiff(DiffContext ctx) {
+    public void exitExpressionDuration(ExpressionDurationContext ctx) {
         final String text = ctx.getText();
 
         final int value;
         final TimeUnit unit;
 
-        final Context c = new ContextImpl(ctx);
+        final Context c = context(ctx);
 
         if (text.length() > 2 && "ms".equals(text.substring(text.length() - 2, text.length()))) {
             unit = TimeUnit.MILLISECONDS;
-            value = Integer.valueOf(text.substring(0, text.length() - 2));
+            value = Integer.parseInt(text.substring(0, text.length() - 2));
         } else {
             unit = extractUnit(c, text.substring(text.length() - 1, text.length()));
-            value = Integer.valueOf(text.substring(0, text.length() - 1));
+            value = Integer.parseInt(text.substring(0, text.length() - 1));
         }
 
-        push(new DiffValue(unit, value));
+        push(new DurationValue(unit, value, c));
     }
 
     @Override
-    public void exitHasExpr(HasExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterHas(FilterHasContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+
         push(filters.hasTag(value.getString()));
     }
 
     @Override
-    public void exitNotExpr(NotExprContext ctx) {
-        push(filters.not(pop(new ContextImpl(ctx), Filter.class)));
+    public void exitFilterNot(FilterNotContext ctx) {
+        push(filters.not(pop(context(ctx), Filter.class)));
     }
 
     @Override
-    public void exitKeyEqExpr(KeyEqExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterKeyEq(FilterKeyEqContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+
         push(filters.matchKey(value.getString()));
     }
 
     @Override
-    public void exitKeyNotEqExpr(KeyNotEqExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterKeyNotEq(FilterKeyNotEqContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+
         push(filters.not(filters.matchKey(value.getString())));
     }
 
     @Override
-    public void exitEqExpr(EqExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
-        final StringValue key = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterEq(FilterEqContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+        final StringValue key = pop(context(ctx), StringValue.class);
+
         push(filters.matchTag(key.getString(), value.getString()));
     }
 
     @Override
-    public void exitNotEqExpr(NotEqExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
-        final StringValue key = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterNotEq(FilterNotEqContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+        final StringValue key = pop(context(ctx), StringValue.class);
+
         push(filters.not(filters.matchTag(key.getString(), value.getString())));
     }
 
     @Override
-    public void exitPrefixExpr(PrefixExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
-        final StringValue key = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterPrefix(FilterPrefixContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+        final StringValue key = pop(context(ctx), StringValue.class);
+
         push(filters.startsWith(key.getString(), value.getString()));
     }
 
     @Override
-    public void exitNotPrefixExpr(NotPrefixExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
-        final StringValue key = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterNotPrefix(FilterNotPrefixContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+        final StringValue key = pop(context(ctx), StringValue.class);
+
         push(filters.not(filters.startsWith(key.getString(), value.getString())));
     }
 
     @Override
-    public void exitRegexExpr(RegexExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
-        final StringValue key = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterRegex(FilterRegexContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+        final StringValue key = pop(context(ctx), StringValue.class);
+
         push(filters.regex(key.getString(), value.getString()));
     }
 
     @Override
-    public void exitNotRegexExpr(NotRegexExprContext ctx) {
-        final StringValue value = pop(new ContextImpl(ctx), StringValue.class);
-        final StringValue key = pop(new ContextImpl(ctx), StringValue.class);
+    public void exitFilterNotRegex(FilterNotRegexContext ctx) {
+        final StringValue value = pop(context(ctx), StringValue.class);
+        final StringValue key = pop(context(ctx), StringValue.class);
+
         push(filters.not(filters.regex(key.getString(), value.getString())));
     }
 
     @Override
-    public void exitFilterExprs(FilterExprsContext ctx) {
-        // a single filter should already be on the stack, regardless of expression type.
-        if (ctx.getChildCount() == 1)
-            return;
-
-        final Context c = new ContextImpl(ctx);
-
-        final String type = ctx.getChild(1).getText();
-
-        final Filter a = pop(c, Filter.class);
+    public void exitFilterAnd(FilterAndContext ctx) {
+        final Context c = context(ctx);
         final Filter b = pop(c, Filter.class);
-
-        if ("and".equals(type)) {
-            push(filters.and(a, b));
-            return;
-        }
-
-        if ("or".equals(type)) {
-            push(filters.or(a, b));
-            return;
-        }
-
-        throw c.error("unsupported expression: " + type);
+        final Filter a = pop(c, Filter.class);
+        push(filters.and(a, b));
     }
 
     @Override
-    public void enterBooleanExpr(BooleanExprContext ctx) {
-        final Context c = new ContextImpl(ctx);
+    public void exitFilterOr(FilterOrContext ctx) {
+        final Context c = context(ctx);
+        final Filter b = pop(c, Filter.class);
+        final Filter a = pop(c, Filter.class);
+        push(filters.or(a, b));
+    }
+
+    @Override
+    public void exitAggregationBy(final AggregationByContext ctx) {
+        final Context c = context(ctx);
+
+        final ListValue group = pop(c, Value.class).cast(ListValue.class);
+        final AggregationValue left = pop(c, Value.class).cast(AggregationValue.class);
+
+        push(new AggregationValue(GROUP, Value.list(group, left), ImmutableMap.of(), c));
+    }
+
+    @Override
+    public void exitAggregationByAll(final AggregationByAllContext ctx) {
+        final Context c = context(ctx);
+
+        final AggregationValue left = pop(c, Value.class).cast(AggregationValue.class);
+
+        push(new AggregationValue(GROUP, Value.list(new EmptyValue(c), left), ImmutableMap.of(),
+                c));
+    }
+
+    @Override
+    public void enterAggregationPipe(AggregationPipeContext ctx) {
+        stack.push(PIPE_MARK);
+    }
+
+    @Override
+    public void exitAggregationPipe(AggregationPipeContext ctx) {
+        final Context c = context(ctx);
+        final List<AggregationValue> values =
+                ImmutableList.copyOf(popUntil(c, PIPE_MARK, Value.class).stream()
+                        .map(v -> v.cast(AggregationValue.class)).iterator());
+        push(new AggregationValue(CHAIN, new ListValue(values, c), ImmutableMap.of(), c));
+    }
+
+    @Override
+    public void exitFilterBoolean(FilterBooleanContext ctx) {
+        final Context c = context(ctx);
         final String literal = ctx.getText();
 
         if ("true".equals(literal)) {
@@ -555,18 +510,51 @@ public class QueryListener extends HeroicQueryBaseListener {
         throw c.error("unsupported boolean literal: " + literal);
     }
 
+    private <T> List<T> popUntil(final Context c, final Object mark, final Class<T> type) {
+        final ImmutableList.Builder<T> results = ImmutableList.builder();
+
+        while (stack.peek() != mark) {
+            results.add(pop(c, type));
+        }
+
+        stack.pop();
+        return Lists.reverse(results.build());
+    }
+
+    private List<Filter> buildIn(final Context c, final StringValue key, final Value match) {
+        if (match instanceof StringValue) {
+            return ImmutableList.of(filters.matchTag(key.getString(), match.cast(String.class)));
+        }
+
+        if (!(match instanceof ListValue)) {
+            throw c.error("Cannot use type " + match + " in expression");
+        }
+
+        final List<Filter> values = new ArrayList<>();
+
+        for (final Value v : ((ListValue) match).getList()) {
+            values.add(filters.matchTag(key.getString(), v.cast(String.class)));
+        }
+
+        return values;
+    }
+
     private TimeUnit extractUnit(Context ctx, String text) {
-        if ("s".equals(text))
+        if ("s".equals(text)) {
             return TimeUnit.SECONDS;
+        }
 
-        if ("m".equals(text))
+        if ("m".equals(text)) {
             return TimeUnit.MINUTES;
+        }
 
-        if ("H".equals(text))
+        if ("H".equals(text) || "h".equals(text)) {
             return TimeUnit.HOURS;
+        }
 
-        if ("d".equals(text))
+        if ("d".equals(text)) {
             return TimeUnit.DAYS;
+        }
 
         throw ctx.error("illegal unit: " + text);
     }
@@ -580,8 +568,9 @@ public class QueryListener extends HeroicQueryBaseListener {
         while (i < text.length()) {
             final char c = text.charAt(i++);
 
-            if (i == 1 || i == text.length())
+            if (i == 1 || i == text.length()) {
                 continue;
+            }
 
             if (escapeNext) {
                 if (c == 'b') {
@@ -613,35 +602,75 @@ public class QueryListener extends HeroicQueryBaseListener {
         return builder.toString();
     }
 
+    public void popMark(Object mark) {
+        final Object actual = pop(Object.class);
+
+        if (actual != mark) {
+            throw new IllegalStateException("Expected mark " + mark + ", but got " + actual);
+        }
+    }
+
+    public <T> List<T> popList(Class<T> type) {
+        final Class<?> typeOn = pop(Class.class);
+        checkType(type, typeOn);
+        return (List<T>) pop(List.class);
+    }
+
+    public <T> Optional<T> popOptional(Class<T> type) {
+        final Object mark = stack.pop();
+
+        if (mark == EMPTY) {
+            return Optional.empty();
+        }
+
+        if (mark == NOT_EMPTY) {
+            return Optional.of(pop(type));
+        }
+
+        throw new IllegalStateException("stack does not contain a legal optional mark");
+    }
+
     public <T> T pop(Class<T> type) {
-        if (stack.isEmpty())
+        if (stack.isEmpty()) {
             throw new IllegalStateException("stack is empty (did you parse something?)");
+        }
 
         final Object popped = stack.pop();
 
-        if (!type.isAssignableFrom(popped.getClass()))
-            throw new IllegalStateException(String.format("expected %s, but was %s", name(type),
-                    name(popped.getClass())));
+        checkType(type, popped.getClass());
 
         return (T) popped;
     }
 
+    private <T> void checkType(Class<T> expected, Class<?> actual) {
+        if (!expected.isAssignableFrom(actual)) {
+            throw new IllegalStateException(
+                    String.format("expected %s, but was %s", name(expected), name(actual)));
+        }
+    }
+
     /* internals */
+    private <T> void pushOptional(final Optional<T> value) {
+        if (!value.isPresent()) {
+            push(EMPTY);
+            return;
+        }
+
+        push(value.get());
+        push(NOT_EMPTY);
+    }
 
     private void push(Object value) {
-        stack.push(value);
+        stack.push(Objects.requireNonNull(value));
     }
 
     private <T> T pop(Context ctx, Class<T> type) {
-        final Object popped = stack.pop();
-
-        if (popped == null)
+        if (stack.isEmpty()) {
             throw ctx.error(String.format("expected %s, but was empty", name(type)));
-
-        if (!type.isAssignableFrom(popped.getClass())) {
-            throw ctx.error(String.format("expected %s, but was %s", name(type), popped.toString()));
         }
 
+        final Object popped = stack.pop();
+        checkType(type, popped.getClass());
         return (T) popped;
     }
 
@@ -651,45 +680,20 @@ public class QueryListener extends HeroicQueryBaseListener {
         private final Value value;
     }
 
-    @Data
-    static final class AggregationArguments {
-        final List<Value> positional;
-        final Map<String, Value> keywords;
-
-        static final AggregationArguments empty = new AggregationArguments(ImmutableList.of(), ImmutableMap.of());
-
-        public static AggregationArguments empty() {
-            return empty;
-        }
-    }
-
-    @Data
-    private static final class ContextImpl implements Context {
-        private final ParserRuleContext ctx;
-
-        public RuntimeException error(String message) {
-            int line = ctx.getStart().getLine();
-            int col = ctx.getStart().getCharPositionInLine();
-            int lineEnd = ctx.getStop().getLine();
-            int colEnd = ctx.getStop().getCharPositionInLine();
-            return new ParseException(message, null, line, col, lineEnd, colEnd);
-        }
-
-        @Override
-        public RuntimeException error(Exception cause) {
-            int line = ctx.getStart().getLine();
-            int col = ctx.getStart().getCharPositionInLine();
-            int lineEnd = ctx.getStop().getLine();
-            int colEnd = ctx.getStop().getCharPositionInLine();
-            return new ParseException(cause.getMessage(), cause, line, col, lineEnd, colEnd);
-        }
+    private static Context context(final ParserRuleContext source) {
+        int line = source.getStart().getLine();
+        int col = source.getStart().getCharPositionInLine();
+        int lineEnd = source.getStop().getLine();
+        int colEnd = source.getStop().getCharPositionInLine();
+        return new Context(line, col, lineEnd, colEnd);
     }
 
     private static String name(Class<?> type) {
         final ValueName name = type.getAnnotation(ValueName.class);
 
-        if (name == null)
+        if (name == null) {
             return type.getName();
+        }
 
         return "<" + name.value() + ">";
     }

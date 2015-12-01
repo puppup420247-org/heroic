@@ -21,21 +21,17 @@
 
 package com.spotify.heroic.ingestion;
 
-import com.spotify.heroic.common.BackendGroupException;
 import com.spotify.heroic.common.Statistics;
+import com.spotify.heroic.common.UsableGroupManager;
 import com.spotify.heroic.filter.Filter;
-import com.spotify.heroic.metric.WriteMetric;
-import com.spotify.heroic.metric.WriteResult;
 
 import eu.toolchain.async.AsyncFuture;
 
-public interface IngestionManager {
-    public static final String INGESTED = "ingested";
-    public static final String AVAILABLE_WRITE_PERMITS = "available-write-permits";
+public interface IngestionManager extends UsableGroupManager<IngestionGroup> {
+    String INGESTED = "ingested";
+    String AVAILABLE_WRITE_PERMITS = "available-write-permits";
 
-    public AsyncFuture<WriteResult> write(String group, WriteMetric write) throws BackendGroupException;
-
-    public Statistics getStatistics();
+    Statistics getStatistics();
 
     /**
      * Configure a filter to use for ingestion.
@@ -45,7 +41,7 @@ public interface IngestionManager {
      * @param filter Filter to configure.
      * @return A future that resolved when the filter has been installed.
      */
-    public AsyncFuture<Void> setFilter(Filter filter);
+    AsyncFuture<Void> setFilter(Filter filter);
 
-    public AsyncFuture<Filter> getFilter();
+    AsyncFuture<Filter> getFilter();
 }

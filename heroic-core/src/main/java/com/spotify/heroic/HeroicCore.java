@@ -28,7 +28,6 @@ import static java.util.Optional.of;
 import java.io.IOException;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -80,6 +79,7 @@ import com.spotify.heroic.shell.ShellServerModule;
 import com.spotify.heroic.statistics.HeroicReporter;
 import com.spotify.heroic.statistics.noop.NoopHeroicReporter;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.FutureDone;
@@ -97,7 +97,7 @@ import lombok.extern.slf4j.Slf4j;
  * @author udoprog
  */
 @Slf4j
-@RequiredArgsConstructor(access=AccessLevel.PRIVATE)
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public class HeroicCore implements HeroicConfiguration, HeroicReporterConfiguration {
     static final String DEFAULT_HOST = "0.0.0.0";
     static final int DEFAULT_PORT = 8080;
@@ -112,17 +112,19 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     static final String APPLICATION_JSON = "application/json";
     static final String APPLICATION_HEROIC_CONFIG = "application/heroic-config";
 
-    static final UncaughtExceptionHandler uncaughtExceptionHandler = new UncaughtExceptionHandler() {
-        @Override
-        public void uncaughtException(Thread t, Throwable e) {
-            try {
-                System.err.println(String.format("Uncaught exception caught in thread %s, exiting...", t));
-                e.printStackTrace(System.err);
-            } finally {
-                System.exit(1);
-            }
-        }
-    };
+    static final UncaughtExceptionHandler uncaughtExceptionHandler =
+            new UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread t, Throwable e) {
+                    try {
+                        System.err.println(String
+                                .format("Uncaught exception caught in thread %s, exiting...", t));
+                        e.printStackTrace(System.err);
+                    } finally {
+                        System.exit(1);
+                    }
+                }
+            };
 
     /**
      * Built-in modules that should always be loaded.
@@ -137,6 +139,7 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
 
     /**
      * Global lock that must be acquired when starting and shutting down core.
+     *
      * @see {@link #start()}
      * @see {@link #shutdown()}
      */
@@ -147,8 +150,8 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     private final Optional<String> startupId;
 
     /**
-     * Additional dynamic parameters to pass into the configuration of a profile.
-     * These are typically extracted from the commandline, or a properties file.
+     * Additional dynamic parameters to pass into the configuration of a profile. These are
+     * typically extracted from the commandline, or a properties file.
      */
     private final ExtraParameters params;
 
@@ -197,20 +200,27 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     /**
      * Start the Heroic core, step by step
      *
-     * <p> It sets up the early injector which is responsible for loading all the necessary components to
-     * parse a configuration file.
+     * <p>
+     * It sets up the early injector which is responsible for loading all the necessary components
+     * to parse a configuration file.
      *
-     * <p> Load all the external modules, which are configured in {@link #modules}.
+     * <p>
+     * Load all the external modules, which are configured in {@link #modules}.
      *
-     * <p> Load and build the configuration using the early injector
+     * <p>
+     * Load and build the configuration using the early injector
      *
-     * <p> Setup the primary injector which will provide the dependencies to the entire application
+     * <p>
+     * Setup the primary injector which will provide the dependencies to the entire application
      *
-     * <p> Run all bootstraps that are configured in {@link #late}
+     * <p>
+     * Run all bootstraps that are configured in {@link #late}
      *
-     * <p> Start all the external modules. {@link #startLifeCycles}
+     * <p>
+     * Start all the external modules. {@link #startLifeCycles}
      *
-     * <p> Start all the internal modules. {@link #startInternalLifecycles}
+     * <p>
+     * Start all the internal modules. {@link #startInternalLifecycles}
      *
      * @throws Exception
      */
@@ -231,7 +241,8 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
 
         final Injector primary = primaryInjector(early, config, instance);
 
-        // Update the instance injector, giving dynamic components initialized after this point access to the primary
+        // Update the instance injector, giving dynamic components initialized after this point
+        // access to the primary
         // injector.
         injector.set(primary);
 
@@ -247,7 +258,8 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     /**
-     * Goes through _all_ bindings for the given injector and gets their value to make sure they have been initialized.
+     * Goes through _all_ bindings for the given injector and gets their value to make sure they
+     * have been initialized.
      */
     private void fetchAllBindings(final Injector injector) {
         for (final Entry<Key<?>, Binding<?>> entry : injector.getAllBindings().entrySet()) {
@@ -257,7 +269,7 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
 
     private HeroicCoreInstance setupInstance(final AtomicReference<Injector> coreInjector) {
         return new HeroicCoreInstance() {
-            private final Object $lock = new Object();
+            private final Object lock = new Object();
 
             private volatile boolean stopped = false;
 
@@ -277,16 +289,18 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
                 return coreInjector.get().getInstance(cls);
             }
 
+            @SuppressFBWarnings("DM_GC")
             @Override
             public void shutdown() {
                 final Injector injector = coreInjector.get();
 
-                synchronized ($lock) {
+                synchronized (lock) {
                     if (stopped) {
                         return;
                     }
 
-                    final HeroicInternalLifeCycle lifecycle = injector.getInstance(HeroicInternalLifeCycle.class);
+                    final HeroicInternalLifeCycle lifecycle =
+                            injector.getInstance(HeroicInternalLifeCycle.class);
 
                     log.info("Shutting down Heroic");
 
@@ -299,8 +313,10 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
                     log.info("Stopping internal life cycle");
                     lifecycle.stop();
 
-                    // perform a gc to try to cause any dangling references to be logged through their {@code Object#finalize()}
-                    // method.
+                    /**
+                     * perform a gc to try to cause any dangling references to be logged through
+                     * their {@link Object#finalize()} method.
+                     */
                     Runtime.getRuntime().gc();
 
                     log.info("Done shutting down, bye bye!");
@@ -310,9 +326,9 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
 
             @Override
             public void join() throws InterruptedException {
-                synchronized ($lock) {
+                synchronized (lock) {
                     while (!stopped) {
-                        $lock.wait();
+                        lock.wait();
                     }
                 }
             }
@@ -322,13 +338,14 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     /**
      * Start the internal lifecycles
      *
-     * First step is to register event hooks that makes sure that the lifecycle components gets started and shutdown
-     * correctly. After this the registered internal lifecycles are started.
+     * First step is to register event hooks that makes sure that the lifecycle components gets
+     * started and shutdown correctly. After this the registered internal lifecycles are started.
      *
      * @param primary
      */
     private void startInternalLifecycles(final Injector primary) {
-        final HeroicInternalLifeCycle lifecycle = primary.getInstance(HeroicInternalLifeCycle.class);
+        final HeroicInternalLifeCycle lifecycle =
+                primary.getInstance(HeroicInternalLifeCycle.class);
 
         lifecycle.registerShutdown("Core Scheduler", new HeroicInternalLifeCycle.ShutdownHook() {
             @Override
@@ -337,17 +354,19 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
             }
         });
 
-        lifecycle.registerShutdown("Core Executor Service", new HeroicInternalLifeCycle.ShutdownHook() {
-            @Override
-            public void onShutdown() throws Exception {
-                primary.getInstance(ExecutorService.class).shutdown();
-            }
-        });
+        lifecycle.registerShutdown("Core Executor Service",
+                new HeroicInternalLifeCycle.ShutdownHook() {
+                    @Override
+                    public void onShutdown() throws Exception {
+                        primary.getInstance(ExecutorService.class).shutdown();
+                    }
+                });
 
         lifecycle.register("Core Future Resolver", new HeroicInternalLifeCycle.StartupHook() {
             @Override
             public void onStartup(Context context) throws Exception {
-                final CoreHeroicContext heroicContext = (CoreHeroicContext) primary.getInstance(HeroicContext.class);
+                final CoreHeroicContext heroicContext =
+                        (CoreHeroicContext) primary.getInstance(HeroicContext.class);
                 heroicContext.resolveCoreFuture();
             }
         });
@@ -356,13 +375,15 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     /**
-     * This method basically goes through the list of bootstrappers registered by modules and runs them.
+     * This method basically goes through the list of bootstrappers registered by modules and runs
+     * them.
      *
      * @param injector Injector to inject boostrappers using.
      * @param bootstrappers Bootstrappers to run.
      * @throws Exception
      */
-    private void runBootstrappers(final Injector injector, final List<HeroicBootstrap> bootstrappers) throws Exception {
+    private void runBootstrappers(final Injector injector,
+            final List<HeroicBootstrap> bootstrappers) throws Exception {
         for (final HeroicBootstrap bootstrap : bootstrappers) {
             try {
                 injector.injectMembers(bootstrap);
@@ -374,15 +395,18 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     /**
-     * Setup early injector, which is responsible for sufficiently providing dependencies to runtime components.
+     * Setup early injector, which is responsible for sufficiently providing dependencies to runtime
+     * components.
      */
     private Injector loadingInjector() {
         log.info("Building Loading Injector");
 
-        final ExecutorService executor = buildCoreExecutor(Runtime.getRuntime().availableProcessors() * 2);
-        final HeroicInternalLifeCycle lifeCycle = new HeroicInernalLifeCycleImpl();
+        final ExecutorService executor =
+                buildCoreExecutor(Runtime.getRuntime().availableProcessors() * 2);
+        final HeroicInternalLifeCycle lifeCycle = new HeroicInternalLifeCycleImpl();
 
-        return Guice.createInjector(new HeroicLoadingModule(executor, lifeCycle, this, this, params));
+        return Guice
+                .createInjector(new HeroicLoadingModule(executor, lifeCycle, this, this, params));
     }
 
     private Injector earlyInjector(final Injector loading, final HeroicConfig config) {
@@ -397,7 +421,8 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
      */
     private ExecutorService buildCoreExecutor(final int nThreads) {
         return new ThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<Runnable>(), new ThreadFactoryBuilder().setNameFormat("heroic-core-%d")
+                new LinkedBlockingQueue<Runnable>(),
+                new ThreadFactoryBuilder().setNameFormat("heroic-core-%d")
                         .setUncaughtExceptionHandler(uncaughtExceptionHandler).build()) {
             @Override
             protected void afterExecute(Runnable r, Throwable t) {
@@ -428,11 +453,12 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
      * Setup primary injector, which will provide dependencies to the entire application.
      *
      * @param config The loaded configuration file.
-     * @param early The early injector, which will act as a parent to the primary injector to bridge all it's provided
-     *            components.
+     * @param early The early injector, which will act as a parent to the primary injector to bridge
+     *            all it's provided components.
      * @return The primary guice injector.
      */
-    private Injector primaryInjector(final Injector early, final HeroicConfig config, final HeroicCoreInstance instance) {
+    private Injector primaryInjector(final Injector early, final HeroicConfig config,
+            final HeroicCoreInstance instance) {
         log.info("Building Primary Injector");
 
         final List<Module> modules = new ArrayList<Module>();
@@ -452,8 +478,9 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
         final HeroicReporter reporter = this.reporter.get();
 
         // register root components.
-        modules.add(new HeroicPrimaryModule(instance, lifeCycles, bindAddress, config.isEnableCors(),
-                config.getCorsAllowOrigin(), setupService, reporter, pinger));
+        modules.add(
+                new HeroicPrimaryModule(instance, lifeCycles, bindAddress, config.isEnableCors(),
+                        config.getCorsAllowOrigin(), setupService, reporter, pinger));
 
         if (!disableBackends) {
             modules.add(new AbstractModule() {
@@ -508,13 +535,14 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     private InetSocketAddress setupBindAddress(HeroicConfig config) {
-        final String host = Optionals.pickOptional(config.getHost(), this.host).orElse(DEFAULT_HOST);
+        final String host =
+                Optionals.pickOptional(config.getHost(), this.host).orElse(DEFAULT_HOST);
         final int port = Optionals.pickOptional(config.getPort(), this.port).orElse(DEFAULT_PORT);
         return new InetSocketAddress(host, port);
     }
 
-    private static List<Module> setupConsumers(final HeroicConfig config, final HeroicReporter reporter,
-            Binder binder) {
+    private static List<Module> setupConsumers(final HeroicConfig config,
+            final HeroicReporter reporter, Binder binder) {
         final Multibinder<Consumer> bindings = Multibinder.newSetBinder(binder, Consumer.class);
 
         final List<Module> modules = new ArrayList<>();
@@ -522,7 +550,8 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
         final AtomicInteger index = new AtomicInteger();
 
         for (final ConsumerModule consumer : config.getConsumers()) {
-            final String id = consumer.id().orElseGet(() -> consumer.buildId(index.getAndIncrement()));
+            final String id =
+                    consumer.id().orElseGet(() -> consumer.buildId(index.getAndIncrement()));
             final Key<Consumer> key = Key.get(Consumer.class, Names.named(id));
             modules.add(consumer.module(key, reporter.newConsumer(id)));
             bindings.addBinding().to(key);
@@ -553,12 +582,14 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     boolean awaitLifeCycles(final String op, final Injector primary, final int awaitSeconds,
-            final Function<LifeCycle, AsyncFuture<Void>> fn) throws InterruptedException, ExecutionException {
+            final Function<LifeCycle, AsyncFuture<Void>> fn)
+                    throws InterruptedException, ExecutionException {
         final AsyncFramework async = primary.getInstance(AsyncFramework.class);
 
         // we still need to get instances to cause them to be created.
-        final Set<LifeCycle> lifeCycles = primary.getInstance(Key.get(new TypeLiteral<Set<LifeCycle>>() {
-        }));
+        final Set<LifeCycle> lifeCycles =
+                primary.getInstance(Key.get(new TypeLiteral<Set<LifeCycle>>() {
+                }));
 
         if (skipLifecycles) {
             log.info("{}: skipping (skipLifecycles = true)", op);
@@ -622,10 +653,10 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     /**
-     * Load modules from the specified modules configuration file and wire up those components with early injection.
+     * Load modules from the specified modules configuration file and wire up those components with
+     * early injection.
      *
      * @param injector Injector to wire up modules using.
-     * @throws MalformedURLException
      * @throws IOException
      */
     private void loadModules(final Injector injector) throws Exception {
@@ -647,16 +678,16 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
     }
 
     private HeroicConfig.Builder loadConfig(final Injector earlyInjector, final Path path) {
-        final ObjectMapper mapper = earlyInjector.getInstance(Key.get(ObjectMapper.class,
-                Names.named(APPLICATION_HEROIC_CONFIG)));
+        final ObjectMapper mapper = earlyInjector
+                .getInstance(Key.get(ObjectMapper.class, Names.named(APPLICATION_HEROIC_CONFIG)));
 
         try {
             return mapper.readValue(Files.newInputStream(path), HeroicConfig.Builder.class);
         } catch (final JsonMappingException e) {
             final JsonLocation location = e.getLocation();
             final String message = String.format("%s[%d:%d]: %s", configPath,
-                    location == null ? null : location.getLineNr(), location == null ? null : location.getColumnNr(),
-                    e.getOriginalMessage());
+                    location == null ? null : location.getLineNr(),
+                    location == null ? null : location.getColumnNr(), e.getOriginalMessage());
             throw new RuntimeException(message, e);
         } catch (final IOException e) {
             throw new RuntimeException(e);
@@ -723,7 +754,8 @@ public class HeroicCore implements HeroicConfiguration, HeroicReporterConfigurat
             checkNotNull(configPath, "configPath");
 
             if (!Files.isReadable(configPath)) {
-                throw new IllegalArgumentException("Configuration is not readable: " + configPath.toAbsolutePath());
+                throw new IllegalArgumentException(
+                        "Configuration is not readable: " + configPath.toAbsolutePath());
             }
 
             this.configPath = of(configPath);

@@ -45,10 +45,10 @@ import com.spotify.heroic.statistics.IngestionManagerReporter;
 
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
-import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 
-@Data
+@RequiredArgsConstructor
 public class IngestionModule extends PrivateModule {
     private static final String INGESTION_FILTER_PARAM = "ingestion.filter";
 
@@ -95,9 +95,10 @@ public class IngestionModule extends PrivateModule {
 
     @Provides
     @Singleton
-    public Filter filter(final QueryParser parser, final FilterFactory filters, final ExtraParameters params) {
-        return Optionals.pickOptional(filter.map(parser::parseFilter), params.getFilter(INGESTION_FILTER_PARAM, parser))
-                .orElseGet(filters::t);
+    public Filter filter(final QueryParser parser, final FilterFactory filters,
+            final ExtraParameters params) {
+        return Optionals.pickOptional(filter.map(parser::parseFilter),
+                params.getFilter(INGESTION_FILTER_PARAM, parser)).orElseGet(filters::t);
     }
 
     @Override
@@ -110,8 +111,8 @@ public class IngestionModule extends PrivateModule {
         return new Builder();
     }
 
-    @NoArgsConstructor(access=AccessLevel.PRIVATE)
-    @AllArgsConstructor(access=AccessLevel.PRIVATE)
+    @NoArgsConstructor(access = AccessLevel.PRIVATE)
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
     public static class Builder {
         private Optional<Boolean> updateMetrics = empty();
         private Optional<Boolean> updateMetadata = empty();
@@ -153,7 +154,6 @@ public class IngestionModule extends PrivateModule {
             this.updateSuggestions = of(updateSuggestions);
             return this;
         }
-
 
         public Builder maxConcurrentWrites(int maxConcurrentWrites) {
             this.maxConcurrentWrites = of(maxConcurrentWrites);

@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.metric.datastax.schema.ng;
 
 import java.io.IOException;
@@ -6,7 +27,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.PreparedStatement;
@@ -16,66 +36,50 @@ import com.spotify.heroic.common.Series;
 import com.spotify.heroic.metric.BackendKey;
 import com.spotify.heroic.metric.Point;
 import com.spotify.heroic.metric.datastax.MetricsRowKey;
-import com.spotify.heroic.metric.datastax.MetricsRowKey_Serializer;
 import com.spotify.heroic.metric.datastax.TypeSerializer;
+import com.spotify.heroic.metric.datastax.schema.AbstractSchemaInstance;
+import com.spotify.heroic.metric.datastax.schema.BackendKeyUtils;
 import com.spotify.heroic.metric.datastax.schema.Schema.PreparedFetch;
-import com.spotify.heroic.metric.datastax.schema.SchemaInstance;
 
 import eu.toolchain.async.Transform;
-import eu.toolchain.serializer.BytesSerialWriter;
-import eu.toolchain.serializer.SerialReader;
-import eu.toolchain.serializer.Serializer;
-import eu.toolchain.serializer.SerializerFramework;
-import eu.toolchain.serializer.TinySerializer;
 import lombok.Data;
 
 @Data
-public class NextGenSchemaInstance implements SchemaInstance {
+public class NextGenSchemaInstance extends AbstractSchemaInstance {
+    public static final String KEY = "metric_key";
+    public static final long MAX_WIDTH = Integer.MAX_VALUE;
+
+    public static final TypeSerializer<MetricsRowKey> ROW_KEY = new MetricsRowKeySerializer();
+
+    private final String keyspace;
+    private final String pointsTable;
     private final PreparedStatement write;
     private final PreparedStatement fetch;
     private final PreparedStatement delete;
     private final PreparedStatement count;
-    private final PreparedStatement keysPagingLimit;
-    private final PreparedStatement keysPagingLeftLimit;
+    private final BackendKeyUtils keyUtils;
 
-    public static final long MAX_WIDTH = Integer.MAX_VALUE;
-
-    final SerializerFramework s = TinySerializer.builder().useCompactSize(true).build();
-    final Serializer<MetricsRowKey> serializer = new MetricsRowKey_Serializer(s, s.variableLong());
-
-    final TypeSerializer<MetricsRowKey> rowKey = new TypeSerializer<MetricsRowKey>() {
-        @Override
-        public ByteBuffer serialize(MetricsRowKey value) throws IOException {
-            try (final BytesSerialWriter w = s.writeBytes()) {
-                serializer.serialize(w, value);
-                return w.toByteBuffer();
-            }
-        }
-
-        @Override
-        public MetricsRowKey deserialize(ByteBuffer buffer) throws IOException {
-            try (final SerialReader r = s.readByteBuffer(buffer)) {
-                return serializer.deserialize(r);
-            }
-        }
-    };
+    public NextGenSchemaInstance(final String keyspace, final String pointsTable,
+            final PreparedStatement write, final PreparedStatement fetch,
+            final PreparedStatement delete, final PreparedStatement count) {
+        super(KEY);
+        this.keyspace = keyspace;
+        this.pointsTable = pointsTable;
+        this.write = write;
+        this.fetch = fetch;
+        this.delete = delete;
+        this.count = count;
+        this.keyUtils = new BackendKeyUtils(KEY, keyspace, pointsTable, this);
+    }
 
     @Override
     public TypeSerializer<MetricsRowKey> rowKey() {
-        return rowKey;
+        return ROW_KEY;
     }
 
     @Override
-    public BoundStatement keysPaging(Optional<ByteBuffer> first, int limit) {
-        return first.map(f ->  keysPagingLeftLimit.bind(f, limit)).orElseGet(() -> keysPagingLimit.bind(limit));
-    }
-
-    @Override
-    public Transform<Row, BackendKey> keyConverter() {
-        return row -> {
-            final MetricsRowKey key = rowKey.deserialize(row.getBytes("metric_key"));
-            return new BackendKey(key.getSeries(), key.getBase());
-        };
+    public BackendKeyUtils keyUtils() {
+        return keyUtils;
     }
 
     @Override
@@ -90,7 +94,7 @@ public class NextGenSchemaInstance implements SchemaInstance {
                 ByteBuffer key = cache.get(base);
 
                 if (key == null) {
-                    key = rowKey.serialize(new MetricsRowKey(series, base));
+                    key = ROW_KEY.serialize(new MetricsRowKey(series, base));
                     cache.put(base, key);
                 }
 
@@ -101,7 +105,8 @@ public class NextGenSchemaInstance implements SchemaInstance {
     }
 
     @Override
-    public List<PreparedFetch> ranges(final Series series, final DateRange range) throws IOException {
+    public List<PreparedFetch> ranges(final Series series, final DateRange range)
+            throws IOException {
         final List<PreparedFetch> bases = new ArrayList<>();
 
         final long start = calculateBaseTimestamp(range.getStart());
@@ -114,7 +119,7 @@ public class NextGenSchemaInstance implements SchemaInstance {
                 continue;
             }
 
-            final ByteBuffer key = rowKey.serialize(new MetricsRowKey(series, currentBase));
+            final ByteBuffer key = ROW_KEY.serialize(new MetricsRowKey(series, currentBase));
             final int startColumn = calculateColumnKey(modified.start());
             final int endColumn = calculateColumnKey(modified.end());
             final long base = currentBase;
@@ -145,6 +150,34 @@ public class NextGenSchemaInstance implements SchemaInstance {
     }
 
     @Override
+    public PreparedFetch row(final BackendKey key) throws IOException {
+        final long base = key.getBase();
+
+        final ByteBuffer k = ROW_KEY.serialize(new MetricsRowKey(key.getSeries(), base));
+
+        return new PreparedFetch() {
+            @Override
+            public BoundStatement fetch(int limit) {
+                return fetch.bind(k, Integer.MIN_VALUE, Integer.MAX_VALUE, limit);
+            }
+
+            @Override
+            public Transform<Row, Point> converter() {
+                return row -> {
+                    final long timestamp = calculateAbsoluteTimestamp(base, row.getInt(0));
+                    final double value = row.getDouble(1);
+                    return new Point(timestamp, value);
+                };
+            }
+
+            @Override
+            public String toString() {
+                return "<Fetch Row " + key + ">";
+            }
+        };
+    }
+
+    @Override
     public BoundStatement deleteKey(ByteBuffer k) {
         return delete.bind(k);
     }
@@ -154,15 +187,15 @@ public class NextGenSchemaInstance implements SchemaInstance {
         return count.bind(k);
     }
 
-    private long calculateBaseTimestamp(long timestamp) {
+    static long calculateBaseTimestamp(final long timestamp) {
         return timestamp - timestamp % MAX_WIDTH;
     }
 
-    private int calculateColumnKey(long timestamp) {
-        return (int)(timestamp % MAX_WIDTH);
+    static int calculateColumnKey(final long timestamp) {
+        return (int) (timestamp % MAX_WIDTH);
     }
 
-    private long calculateAbsoluteTimestamp(long base, int key) {
-        return base + (long)key;
+    static long calculateAbsoluteTimestamp(final long base, final int key) {
+        return base + (long) key;
     }
 }

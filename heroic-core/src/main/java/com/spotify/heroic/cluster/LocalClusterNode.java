@@ -24,8 +24,8 @@ package com.spotify.heroic.cluster;
 import java.util.List;
 
 import com.google.inject.Inject;
-import com.spotify.heroic.aggregation.Aggregation;
-import com.spotify.heroic.common.BackendGroupException;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.aggregation.AggregationInstance;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.common.Series;
@@ -40,8 +40,6 @@ import com.spotify.heroic.metadata.MetadataManager;
 import com.spotify.heroic.metric.MetricBackendGroup;
 import com.spotify.heroic.metric.MetricManager;
 import com.spotify.heroic.metric.MetricType;
-import com.spotify.heroic.metric.QueryOptions;
-import com.spotify.heroic.metric.QueryTrace;
 import com.spotify.heroic.metric.ResultGroups;
 import com.spotify.heroic.metric.WriteMetric;
 import com.spotify.heroic.metric.WriteResult;
@@ -102,8 +100,8 @@ public class LocalClusterNode implements ClusterNode {
         }
 
         @Override
-        public AsyncFuture<ResultGroups> query(MetricType source, Filter filter,
-                DateRange range, Aggregation aggregation, QueryOptions options) {
+        public AsyncFuture<ResultGroups> query(MetricType source, Filter filter, DateRange range,
+                AggregationInstance aggregation, QueryOptions options) {
             return metrics().query(source, filter, range, aggregation, options);
         }
 
@@ -138,17 +136,20 @@ public class LocalClusterNode implements ClusterNode {
         }
 
         @Override
-        public AsyncFuture<TagSuggest> tagSuggest(RangeFilter filter, MatchOptions options, String key, String value) {
+        public AsyncFuture<TagSuggest> tagSuggest(RangeFilter filter, MatchOptions options,
+                String key, String value) {
             return suggest().tagSuggest(filter, options, key, value);
         }
 
         @Override
-        public AsyncFuture<KeySuggest> keySuggest(RangeFilter filter, MatchOptions options, String key) {
+        public AsyncFuture<KeySuggest> keySuggest(RangeFilter filter, MatchOptions options,
+                String key) {
             return suggest().keySuggest(filter, options, key);
         }
 
         @Override
-        public AsyncFuture<TagValuesSuggest> tagValuesSuggest(RangeFilter filter, List<String> exclude, int groupLimit) {
+        public AsyncFuture<TagValuesSuggest> tagValuesSuggest(RangeFilter filter,
+                List<String> exclude, int groupLimit) {
             return suggest().tagValuesSuggest(filter, exclude, groupLimit);
         }
 
@@ -168,27 +169,15 @@ public class LocalClusterNode implements ClusterNode {
         }
 
         private SuggestBackend suggest() {
-            try {
-                return suggest.useGroup(group);
-            } catch (BackendGroupException e) {
-                throw new IllegalArgumentException("invalid group: " + group, e);
-            }
+            return suggest.useGroup(group);
         }
 
         private MetadataBackend metadata() {
-            try {
-                return metadata.useGroup(group);
-            } catch (BackendGroupException e) {
-                throw new IllegalArgumentException("invalid group: " + group, e);
-            }
+            return metadata.useGroup(group);
         }
 
         private MetricBackendGroup metrics() {
-            try {
-                return metrics.useGroup(group);
-            } catch (BackendGroupException e) {
-                throw new IllegalArgumentException("invalid group: " + group, e);
-            }
+            return metrics.useGroup(group);
         }
     }
 }

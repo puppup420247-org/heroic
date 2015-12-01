@@ -53,22 +53,22 @@ public class BackendGroups<T extends Initializing & Grouped> {
     /**
      * Use default groups and guarantee that at least one is available.
      */
-    public SelectedGroup<T> useDefault() throws BackendGroupException {
-        return filterAlive(defaults());
+    public SelectedGroup<T> useDefault() {
+        return selected(defaults());
     }
 
     /**
      * Use the given group and guarantee that at least one is available.
      */
-    public SelectedGroup<T> use(final String group) throws BackendGroupException {
-        return filterAlive(group != null ? find(group) : defaults());
+    public SelectedGroup<T> use(final String group) {
+        return selected(group != null ? find(group) : defaults());
     }
 
     /**
      * Use the given groups and guarantee that at least one is available.
      */
-    public SelectedGroup<T> use(final Set<String> groups) throws BackendGroupException {
-        return filterAlive(groups != null ? find(groups) : defaults());
+    public SelectedGroup<T> use(final Set<String> groups) {
+        return selected(groups != null ? find(groups) : defaults());
     }
 
     public List<T> defaults() {
@@ -80,7 +80,8 @@ public class BackendGroups<T extends Initializing & Grouped> {
 
         for (final Map.Entry<String, List<T>> entry : groups.entrySet()) {
             for (final T e : entry.getValue()) {
-                result.add(new GroupMember<>(entry.getKey(), e, e.getGroups(), defaults.contains(e)));
+                result.add(
+                        new GroupMember<>(entry.getKey(), e, e.getGroups(), defaults.contains(e)));
             }
         }
 
@@ -90,8 +91,10 @@ public class BackendGroups<T extends Initializing & Grouped> {
     public T findOne(String group) {
         final List<T> results = group != null ? find(group) : defaults();
 
-        if (results.isEmpty())
-            throw new IllegalArgumentException("Could not find one member of group '" + group + "'");
+        if (results.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Could not find one member of group '" + group + "'");
+        }
 
         return results.iterator().next();
     }
@@ -99,40 +102,29 @@ public class BackendGroups<T extends Initializing & Grouped> {
     private List<T> find(Set<String> groups) {
         final List<T> result = new ArrayList<>();
 
-        for (final String group : groups)
+        for (final String group : groups) {
             result.addAll(find(group));
+        }
 
         return ImmutableList.copyOf(result);
     }
 
     private List<T> find(String group) {
-        if (group == null)
+        if (group == null) {
             throw new IllegalArgumentException("group");
+        }
 
         final List<T> result = groups.get(group);
 
-        if (result == null || result.isEmpty())
+        if (result == null || result.isEmpty()) {
             return ImmutableList.of();
+        }
 
         return ImmutableList.copyOf(result);
     }
 
-    private SelectedGroup<T> filterAlive(final List<T> backends) throws BackendGroupException {
-        final List<T> alive = new ArrayList<T>();
-
-        // Keep track of groups which are not ready.
-        int disabled = 0;
-
-        for (final T backend : backends) {
-            if (!backend.isReady()) {
-                ++disabled;
-                continue;
-            }
-
-            alive.add(backend);
-        }
-
-        return new SelectedGroup<T>(disabled, alive, backends);
+    private SelectedGroup<T> selected(final List<T> backends) {
+        return new SelectedGroup<T>(backends);
     }
 
     private static <T extends Grouped> Map<String, List<T>> buildBackends(Collection<T> backends) {
@@ -140,7 +132,8 @@ public class BackendGroups<T extends Initializing & Grouped> {
 
         for (final T backend : backends) {
             if (backend.getGroups().isEmpty()) {
-                throw new IllegalStateException("Backend " + backend + " does not belong to any groups");
+                throw new IllegalStateException(
+                        "Backend " + backend + " does not belong to any groups");
             }
 
             for (final String name : backend.getGroups()) {
@@ -174,8 +167,10 @@ public class BackendGroups<T extends Initializing & Grouped> {
         for (final String defaultBackend : defaultBackends.get()) {
             final List<T> someResult = backends.get(defaultBackend);
 
-            if (someResult == null)
-                throw new IllegalArgumentException("No backend(s) available with group: " + defaultBackend);
+            if (someResult == null) {
+                throw new IllegalArgumentException(
+                        "No backend(s) available with group: " + defaultBackend);
+            }
 
             defaults.addAll(someResult);
         }
@@ -183,10 +178,11 @@ public class BackendGroups<T extends Initializing & Grouped> {
         return defaults;
     }
 
-    public static <T extends Grouped & Initializing> BackendGroups<T> build(Collection<T> configured,
-            Optional<List<String>> defaultBackends) {
+    public static <T extends Grouped & Initializing> BackendGroups<T> build(
+            Collection<T> configured, Optional<List<String>> defaultBackends) {
         final Map<String, List<T>> mappings = buildBackends(configured);
         final Set<T> defaults = buildDefaults(mappings, defaultBackends);
-        return new BackendGroups<T>(ImmutableList.copyOf(configured), mappings, ImmutableList.copyOf(defaults));
+        return new BackendGroups<T>(ImmutableList.copyOf(configured), mappings,
+                ImmutableList.copyOf(defaults));
     }
 }

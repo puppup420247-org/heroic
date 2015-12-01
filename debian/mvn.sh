@@ -1,9 +1,18 @@
 #!/bin/bash
 MVN=mvn
+
 # quiet
-MVN="${MVN} -q"
-# release should not be running tests
+if [[ ${DH_VERBOSE} != "1" ]]; then
+    MVN="${MVN} -q"
+else
+    MVN="${MVN} -X"
+fi
+
+# releases should not run tests
 MVN="${MVN} -D maven.test.skip=true"
+MVN="${MVN} -D findbugs.skip=true"
+MVN="${MVN} -D checkstyle.skip=true"
+
 # use scoped home directory to avoid contaminating build system
 MVN="${MVN} -D user.home=${MAVEN_HOME}"
 

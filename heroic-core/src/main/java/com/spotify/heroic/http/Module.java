@@ -27,7 +27,6 @@ import com.spotify.heroic.HeroicModule;
 import com.spotify.heroic.http.cluster.ClusterResource;
 import com.spotify.heroic.http.metadata.MetadataResource;
 import com.spotify.heroic.http.metadata.MetadataResourceModule;
-import com.spotify.heroic.http.metrics.MetricsResource;
 import com.spotify.heroic.http.parser.ParserResource;
 import com.spotify.heroic.http.query.QueryResource;
 import com.spotify.heroic.http.render.RenderResource;
@@ -53,13 +52,14 @@ public class Module implements HeroicModule {
                 config.resource(MetadataResource.class);
                 config.module(new MetadataResourceModule());
                 config.resource(ClusterResource.class);
-                config.resource(MetricsResource.class);
                 config.resource(ParserResource.class);
 
+                config.resource(ExceptionExceptionMapper.class);
                 config.resource(ErrorMapper.class);
                 config.resource(ParseExceptionMapper.class);
-                config.resource(CustomExceptionMapper.class);
-                config.resource(UnrecognizedPropertyExceptionMapper.class);
+                config.resource(QueryStateExceptionMapper.class);
+                config.resource(JsonMappingExceptionMapper.class);
+                config.resource(JsonParseExceptionMapper.class);
             }
         };
     }

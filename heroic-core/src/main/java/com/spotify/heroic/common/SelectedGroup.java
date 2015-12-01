@@ -30,9 +30,7 @@ import lombok.Data;
 
 @Data
 public class SelectedGroup<T extends Grouped> implements Iterable<T> {
-    private final int disabled;
     private final List<T> members;
-    private final List<T> all;
 
     @Override
     public Iterator<T> iterator() {
@@ -41,6 +39,10 @@ public class SelectedGroup<T extends Grouped> implements Iterable<T> {
 
     public boolean isEmpty() {
         return members.isEmpty();
+    }
+
+    public int size() {
+        return members.size();
     }
 
     public Groups groups() {

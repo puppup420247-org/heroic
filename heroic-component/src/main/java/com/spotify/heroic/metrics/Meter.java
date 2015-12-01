@@ -1,9 +1,31 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /**
  * Copyright 2010-2013 Coda Hale and Yammer, Inc., 2014-2015 Dropwizard Team
  *
  * It is licensed under the Apache 2.0 license.
  *
- * The below link is a snapshot of the commit that this code was copied from, it includes licensing information.
+ * The below link is a snapshot of the commit that this code was copied from, it includes licensing
+ * information.
  * https://github.com/dropwizard/metrics/tree/e45597d00b972e530b0a79b95190615b4e031ec9
  */
 package com.spotify.heroic.metrics;
@@ -14,6 +36,7 @@ import java.util.concurrent.atomic.LongAdder;
 
 /**
  * A meter metric which measures mean five-minute exponentially-weighted moving average throughputs.
+ *
  * @see EWMA
  */
 public class Meter {
@@ -36,7 +59,7 @@ public class Meter {
     /**
      * Creates a new {@link Meter}.
      *
-     * @param clock      the clock to use for the meter ticks
+     * @param clock the clock to use for the meter ticks
      */
     public Meter(Clock clock) {
         this.clock = clock;

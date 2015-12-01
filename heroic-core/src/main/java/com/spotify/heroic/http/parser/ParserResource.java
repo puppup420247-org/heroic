@@ -23,6 +23,7 @@ package com.spotify.heroic.http.parser;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
@@ -30,20 +31,55 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
 import com.google.inject.Inject;
-import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.Query;
+import com.spotify.heroic.QueryManager;
 import com.spotify.heroic.grammar.QueryParser;
 
 @Path("/parser")
-@Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
 public class ParserResource {
     @Inject
     private QueryParser parser;
 
+    @Inject
+    private QueryManager query;
+
     @GET
-    @Path("/parse-filter")
-    public Response parseQuery(@QueryParam("filter") String filter) {
-        final Filter f = parser.parseFilter(filter);
-        return Response.ok(f).build();
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("parse-filter")
+    public Response parseFilterGet(@QueryParam("filter") String filter) {
+        return Response.ok(parser.parseFilter(filter)).build();
+    }
+
+    @POST
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("parse-query")
+    public Response parseQuery(String queryString) {
+        return Response.ok(query.newQueryFromString(queryString).build()).build();
+    }
+
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.TEXT_PLAIN)
+    @Path("stringify-query")
+    public Response stringifyQuery(Query query) {
+        return Response.ok(this.query.queryToString(query)).build();
+    }
+
+    @POST
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("parse-filter")
+    public Response parseFilter(String filter) {
+        return Response.ok(parser.parseFilter(filter)).build();
+    }
+
+    @POST
+    @Consumes(MediaType.TEXT_PLAIN)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Path("parse-aggregation")
+    public Response parseAggregation(String aggregation) {
+        return Response.ok(parser.parseAggregation(aggregation)).build();
     }
 }

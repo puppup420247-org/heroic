@@ -33,16 +33,21 @@ import org.joda.time.chrono.ISOChronology;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeParser;
 import org.joda.time.format.DateTimeParserBucket;
+import org.kohsuke.args4j.Option;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spotify.heroic.HeroicCoreInstance;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.filter.FilterFactory;
 import com.spotify.heroic.grammar.QueryParser;
+import com.spotify.heroic.metric.BackendKeyFilter;
+import com.spotify.heroic.shell.task.BackendKeyArgument;
 import com.spotify.heroic.shell.task.ConfigGet;
 import com.spotify.heroic.shell.task.Configure;
 import com.spotify.heroic.shell.task.CountData;
+import com.spotify.heroic.shell.task.DataMigrate;
 import com.spotify.heroic.shell.task.DeleteKeys;
 import com.spotify.heroic.shell.task.DeserializeKey;
 import com.spotify.heroic.shell.task.Fetch;
@@ -57,12 +62,14 @@ import com.spotify.heroic.shell.task.MetadataLoad;
 import com.spotify.heroic.shell.task.MetadataMigrate;
 import com.spotify.heroic.shell.task.MetadataMigrateSuggestions;
 import com.spotify.heroic.shell.task.MetadataTags;
+import com.spotify.heroic.shell.task.ParseQuery;
 import com.spotify.heroic.shell.task.Pause;
 import com.spotify.heroic.shell.task.Query;
 import com.spotify.heroic.shell.task.ReadWriteTest;
 import com.spotify.heroic.shell.task.Resume;
 import com.spotify.heroic.shell.task.SerializeKey;
 import com.spotify.heroic.shell.task.Statistics;
+import com.spotify.heroic.shell.task.StringifyQuery;
 import com.spotify.heroic.shell.task.SuggestKey;
 import com.spotify.heroic.shell.task.SuggestPerformance;
 import com.spotify.heroic.shell.task.SuggestTag;
@@ -71,6 +78,8 @@ import com.spotify.heroic.shell.task.SuggestTagValue;
 import com.spotify.heroic.shell.task.SuggestTagValues;
 import com.spotify.heroic.shell.task.Write;
 import com.spotify.heroic.shell.task.WritePerformance;
+
+import lombok.Getter;
 
 public final class Tasks {
     static final List<ShellTaskDefinition> available = new ArrayList<>();
@@ -107,6 +116,9 @@ public final class Tasks {
         available.add(shellTask(Pause.class));
         available.add(shellTask(Resume.class));
         available.add(shellTask(IngestionFilter.class));
+        available.add(shellTask(DataMigrate.class));
+        available.add(shellTask(ParseQuery.class));
+        available.add(shellTask(StringifyQuery.class));
     }
 
     public static List<ShellTaskDefinition> available() {
@@ -165,8 +177,8 @@ public final class Tasks {
             return n.value();
         }
 
-        throw new IllegalStateException(String.format("No name configured with @TaskName on %s",
-                task.getCanonicalName()));
+        throw new IllegalStateException(
+                String.format("No name configured with @TaskName on %s", task.getCanonicalName()));
     }
 
     public static List<String> allNames(final Class<? extends ShellTask> task) {
@@ -215,20 +227,63 @@ public final class Tasks {
         try {
             return constructor.newInstance();
         } catch (ReflectiveOperationException e) {
-            throw new Exception("Failed to invoke constructor of '" + taskType.getCanonicalName(), e);
+            throw new Exception("Failed to invoke constructor of '" + taskType.getCanonicalName(),
+                    e);
         }
     }
 
-    public static Filter setupFilter(FilterFactory filters, QueryParser parser, TaskQueryParameters params) {
+    public static Filter setupFilter(FilterFactory filters, QueryParser parser,
+            TaskQueryParameters params) {
         final List<String> query = params.getQuery();
 
-        if (query.isEmpty())
+        if (query.isEmpty()) {
             return filters.t();
+        }
 
         return parser.parseFilter(StringUtils.join(query, " "));
     }
 
-    public abstract static class QueryParamsBase extends AbstractShellTaskParams implements TaskQueryParameters {
+    public static BackendKeyFilter setupKeyFilter(KeyspaceBase params, ObjectMapper mapper)
+            throws Exception {
+        BackendKeyFilter filter = BackendKeyFilter.of();
+
+        if (params.start != null) {
+            filter = filter.withStart(BackendKeyFilter
+                    .gte(mapper.readValue(params.start, BackendKeyArgument.class).toBackendKey()));
+        }
+
+        if (params.startPercentage >= 0) {
+            filter = filter.withStart(
+                    BackendKeyFilter.gtePercentage((float) params.startPercentage / 100f));
+        }
+
+        if (params.startToken != null) {
+            filter = filter.withStart(BackendKeyFilter.gteToken(params.startToken));
+        }
+
+        if (params.end != null) {
+            filter = filter.withEnd(BackendKeyFilter
+                    .lt(mapper.readValue(params.end, BackendKeyArgument.class).toBackendKey()));
+        }
+
+        if (params.endPercentage >= 0) {
+            filter = filter
+                    .withEnd(BackendKeyFilter.ltPercentage((float) params.endPercentage / 100f));
+        }
+
+        if (params.endToken != null) {
+            filter = filter.withEnd(BackendKeyFilter.ltToken(params.endToken));
+        }
+
+        if (params.limit >= 0) {
+            filter = filter.withLimit(params.limit);
+        }
+
+        return filter;
+    }
+
+    public abstract static class QueryParamsBase extends AbstractShellTaskParams
+            implements TaskQueryParameters {
         private final DateRange defaultDateRange;
 
         public QueryParamsBase() {
@@ -243,7 +298,35 @@ public final class Tasks {
         }
     }
 
-    public static RangeFilter setupRangeFilter(FilterFactory filters, QueryParser parser, TaskQueryParameters params) {
+    public abstract static class KeyspaceBase extends QueryParamsBase {
+        @Option(name = "--start", usage = "First key to operate on", metaVar = "<json>")
+        protected String start;
+
+        @Option(name = "--end", usage = "Last key to operate on (exclusive)", metaVar = "<json>")
+        protected String end;
+
+        @Option(name = "--start-percentage", usage = "First key to operate on in percentage",
+                metaVar = "<int>")
+        protected int startPercentage = -1;
+
+        @Option(name = "--end-percentage",
+                usage = "Last key to operate on (exclusive) in percentage", metaVar = "<int>")
+        protected int endPercentage = -1;
+
+        @Option(name = "--start-token", usage = "First token to operate on", metaVar = "<long>")
+        protected Long startToken = null;
+
+        @Option(name = "--end-token", usage = "Last token to operate on (exclusive)",
+                metaVar = "<int>")
+        protected Long endToken = null;
+
+        @Option(name = "--limit", usage = "Limit the number keys to operate on", metaVar = "<int>")
+        @Getter
+        protected int limit = -1;
+    }
+
+    public static RangeFilter setupRangeFilter(FilterFactory filters, QueryParser parser,
+            TaskQueryParameters params) {
         final Filter filter = setupFilter(filters, parser, params);
         return new RangeFilter(filter, params.getRange(), params.getLimit());
     }
@@ -271,7 +354,7 @@ public final class Tasks {
 
         // try to parse just milliseconds
         try {
-            return Long.valueOf(input);
+            return Long.parseLong(input);
         } catch (IllegalArgumentException e) {
             // pass-through
         }
@@ -289,7 +372,8 @@ public final class Tasks {
         final DateTime n = new DateTime(now, chrono);
 
         for (final DateTimeParser p : today) {
-            final DateTimeParserBucket bucket = new DateTimeParserBucket(0, chrono, null, null, 2000);
+            final DateTimeParserBucket bucket =
+                    new DateTimeParserBucket(0, chrono, null, null, 2000);
 
             bucket.saveField(chrono.year(), n.getYear());
             bucket.saveField(chrono.monthOfYear(), n.getMonthOfYear());
@@ -310,7 +394,8 @@ public final class Tasks {
 
     private static long parseFullInstant(String input, final Chronology chrono) {
         for (final DateTimeParser p : full) {
-            final DateTimeParserBucket bucket = new DateTimeParserBucket(0, chrono, null, null, 2000);
+            final DateTimeParserBucket bucket =
+                    new DateTimeParserBucket(0, chrono, null, null, 2000);
 
             try {
                 p.parseInto(bucket, input, 0);

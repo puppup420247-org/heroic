@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.metric.datastax.schema.legacy;
 
 import java.io.IOException;
@@ -19,18 +40,23 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class LegacySchema extends AbstractCassandraSchema implements Schema {
-    public static final String CREATE_KEYSPACE_CQL = NextGenSchema.class.getPackage().getName()
-            + "/keyspace.cql";
-    public static final String CREATE_TABLES_CQL = NextGenSchema.class.getPackage().getName() + "/tables.cql";
+    public static final String CREATE_KEYSPACE_CQL =
+            NextGenSchema.class.getPackage().getName() + "/keyspace.cql";
+    public static final String CREATE_TABLES_CQL =
+            NextGenSchema.class.getPackage().getName() + "/tables.cql";
 
-    private static final String WRITE_METRICS_CQL = "INSERT INTO {{keyspace}}.metrics (metric_key, data_timestamp_offset, data_value) VALUES (?, ?, ?)";
-    private static final String FETCH_METRICS_CQL = "SELECT data_timestamp_offset, data_value FROM {{keyspace}}.metrics WHERE metric_key = ? and data_timestamp_offset >= ? and data_timestamp_offset <= ? LIMIT ?";
-    private static final String DELETE_METRICS_CQL = "DELETE FROM {{keyspace}}.metrics WHERE metric_key = ?";
-    private static final String COUNT_METRICS_CQL = "SELECT count(*) FROM {{keyspace}}.metrics WHERE metric_key = ?";
-    private static final String KEYS_PAGING = "SELECT DISTINCT metric_key FROM {{keyspace}}.metrics";
-    private static final String KEYS_PAGING_LEFT = "SELECT DISTINCT metric_key FROM {{keyspace}}.metrics WHERE token(metric_key) > token(?)";
-    private static final String KEYS_PAGING_LIMIT = "SELECT DISTINCT metric_key FROM {{keyspace}}.metrics limit ?";
-    private static final String KEYS_PAGING_LEFT_LIMIT = "SELECT DISTINCT metric_key FROM {{keyspace}}.metrics WHERE token(metric_key) > token(?) limit ?";
+    public static final String POINTS_TABLE = "metrics";
+
+    // @formatter:off
+    private static final String WRITE_METRICS_CQL =
+            "INSERT INTO {{keyspace}}.metrics (metric_key, data_timestamp_offset, data_value) VALUES (?, ?, ?)";
+    private static final String FETCH_METRICS_CQL =
+            "SELECT data_timestamp_offset, data_value FROM {{keyspace}}.metrics WHERE metric_key = ? and data_timestamp_offset >= ? and data_timestamp_offset <= ? LIMIT ?";
+    private static final String DELETE_METRICS_CQL =
+            "DELETE FROM {{keyspace}}.metrics WHERE metric_key = ?";
+    private static final String COUNT_METRICS_CQL =
+            "SELECT count(*) FROM {{keyspace}}.metrics WHERE metric_key = ?";
+    // @formatter:on
 
     private final String keyspace;
 
@@ -54,12 +80,15 @@ public class LegacySchema extends AbstractCassandraSchema implements Schema {
         return createKeyspace.lazyTransform(createKeyspaceStmt -> {
             log.info("Creating keyspace {}", keyspace);
 
-            return Async.bind(async, s.executeAsync(createKeyspaceStmt.bind())).lazyTransform(ign -> {
-                final AsyncFuture<PreparedStatement> createTables = prepareTemplate(values, s, CREATE_TABLES_CQL);
+            return Async.bind(async, s.executeAsync(createKeyspaceStmt.bind()))
+                    .lazyTransform(ign -> {
+                final AsyncFuture<PreparedStatement> createTables =
+                        prepareTemplate(values, s, CREATE_TABLES_CQL);
 
                 return createTables.lazyTransform(createTablesStmt -> {
                     log.info("Creating tables for keyspace {}", keyspace);
-                    return Async.bind(async, s.executeAsync(createTablesStmt.bind())).directTransform(ign2 -> null);
+                    return Async.bind(async, s.executeAsync(createTablesStmt.bind()))
+                            .directTransform(ign2 -> null);
                 });
             });
         });
@@ -73,16 +102,11 @@ public class LegacySchema extends AbstractCassandraSchema implements Schema {
         final AsyncFuture<PreparedStatement> fetch = prepareAsync(values, s, FETCH_METRICS_CQL);
         final AsyncFuture<PreparedStatement> delete = prepareAsync(values, s, DELETE_METRICS_CQL);
         final AsyncFuture<PreparedStatement> count = prepareAsync(values, s, COUNT_METRICS_CQL);
-        final AsyncFuture<PreparedStatement> keysPaging = prepareAsync(values, s, KEYS_PAGING);
-        final AsyncFuture<PreparedStatement> keysPagingLeft = prepareAsync(values, s, KEYS_PAGING_LEFT);
-        final AsyncFuture<PreparedStatement> keysPagingLimit = prepareAsync(values, s, KEYS_PAGING_LIMIT);
-        final AsyncFuture<PreparedStatement> keysPagingLeftLimit = prepareAsync(values, s, KEYS_PAGING_LEFT_LIMIT);
 
-        return async.collectAndDiscard(ImmutableList.of(write, fetch, delete, count, keysPaging, keysPagingLeft,
-                keysPagingLimit, keysPagingLeftLimit)).directTransform(r -> {
-                    return new LegacySchemaInstance(write.getNow(), fetch.getNow(), delete.getNow(), count.getNow(),
-                            keysPaging.getNow(), keysPagingLeft.getNow(), keysPagingLimit.getNow(),
-                            keysPagingLeftLimit.getNow());
+        return async.collectAndDiscard(ImmutableList.of(write, fetch, delete, count))
+                .directTransform(r -> {
+                    return new LegacySchemaInstance(keyspace, POINTS_TABLE, write.getNow(),
+                            fetch.getNow(), delete.getNow(), count.getNow());
                 });
     }
 }

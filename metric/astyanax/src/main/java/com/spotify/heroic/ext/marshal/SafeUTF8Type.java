@@ -33,7 +33,7 @@ import org.apache.cassandra.db.marshal.UTF8Type;
  * @author udoprog
  */
 public class SafeUTF8Type extends AbstractType<String> {
-    public static SafeUTF8Type instance = new SafeUTF8Type();
+    public static final SafeUTF8Type INSTANCE = new SafeUTF8Type();
 
     private static final byte IS_NULL = 0x0;
     private static final byte IS_EMPTY_STRING = 0x1;
@@ -49,11 +49,13 @@ public class SafeUTF8Type extends AbstractType<String> {
         bytes = bytes.slice();
         byte flag = bytes.get();
 
-        if (flag == IS_NULL)
+        if (flag == IS_NULL) {
             return null;
+        }
 
-        if (flag == IS_EMPTY_STRING)
+        if (flag == IS_EMPTY_STRING) {
             return "";
+        }
 
         return UTF8Type.instance.compose(bytes.slice());
     }
@@ -94,11 +96,13 @@ public class SafeUTF8Type extends AbstractType<String> {
         bytes = bytes.slice();
         final byte flag = bytes.get();
 
-        if (flag == IS_NULL)
+        if (flag == IS_NULL) {
             return;
+        }
 
-        if (flag == IS_EMPTY_STRING)
+        if (flag == IS_EMPTY_STRING) {
             return;
+        }
 
         UTF8Type.instance.validate(bytes.slice());
     }

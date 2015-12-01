@@ -28,22 +28,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.spotify.heroic.common.DateRange;
+import com.spotify.heroic.QueryDateRange;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.filter.FilterFactory;
-import com.spotify.heroic.http.query.QueryDateRange;
 
 import lombok.Data;
 
 @Data
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class MetadataQueryBody {
-    private static final QueryDateRange DEFAULT_DATE_RANGE = new QueryDateRange.Relative(TimeUnit.DAYS, 7);
     private static final int DEFAULT_LIMIT = 50;
 
     /**
@@ -62,14 +59,15 @@ public class MetadataQueryBody {
     private final Optional<Set<String>> hasTags;
 
     /**
-     * A general set of filters. If this is combined with the other mechanisms, all the filters will be AND:ed together.
+     * A general set of filters. If this is combined with the other mechanisms, all the filters will
+     * be AND:ed together.
      */
     private final Optional<Filter> filter;
 
     /**
      * The date range to query for.
      */
-    private final DateRange range;
+    private final Optional<QueryDateRange> range;
 
     private final int limit;
 
@@ -81,7 +79,8 @@ public class MetadataQueryBody {
         }
 
         if (matchTags.isPresent()) {
-            matchTags.get().entrySet().forEach(e -> statements.add(filters.matchTag(e.getKey(), e.getValue())));
+            matchTags.get().entrySet()
+                    .forEach(e -> statements.add(filters.matchTag(e.getKey(), e.getValue())));
         }
 
         if (hasTags.isPresent()) {
@@ -105,14 +104,14 @@ public class MetadataQueryBody {
 
     @JsonCreator
     public MetadataQueryBody(@JsonProperty("matchKey") String matchKey,
-            @JsonProperty("matchTags") Map<String, String> matchTags, @JsonProperty("hasTags") Set<String> hasTags,
-            @JsonProperty("filter") Filter filter, @JsonProperty("range") QueryDateRange range,
-            @JsonProperty("limit") Integer limit) {
+            @JsonProperty("matchTags") Map<String, String> matchTags,
+            @JsonProperty("hasTags") Set<String> hasTags, @JsonProperty("filter") Filter filter,
+            @JsonProperty("range") QueryDateRange range, @JsonProperty("limit") Integer limit) {
         this.matchKey = ofNullable(matchKey);
         this.matchTags = ofNullable(matchTags);
         this.hasTags = ofNullable(hasTags);
         this.filter = ofNullable(filter);
-        this.range = ofNullable(range).orElse(DEFAULT_DATE_RANGE).buildDateRange();
+        this.range = ofNullable(range);
         this.limit = ofNullable(limit).orElse(DEFAULT_LIMIT);
     }
 

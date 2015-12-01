@@ -39,11 +39,11 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.spotify.heroic.common.Series;
-import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.consumer.ConsumerSchema;
 import com.spotify.heroic.consumer.ConsumerSchemaException;
 import com.spotify.heroic.consumer.ConsumerSchemaValidationException;
 import com.spotify.heroic.consumer.FatalSchemaException;
+import com.spotify.heroic.ingestion.IngestionGroup;
 import com.spotify.heroic.metric.MetricCollection;
 import com.spotify.heroic.metric.Point;
 import com.spotify.heroic.metric.WriteMetric;
@@ -75,7 +75,8 @@ public class Spotify100 implements ConsumerSchema {
         @JsonCreator
         public JsonMetric(@JsonProperty("version") String version, @JsonProperty("key") String key,
                 @JsonProperty("host") String host, @JsonProperty("time") Long time,
-                @JsonProperty("attributes") Map<String, String> attributes, @JsonProperty("value") Double value) {
+                @JsonProperty("attributes") Map<String, String> attributes,
+                @JsonProperty("value") Double value) {
             this.version = version;
             this.key = key;
             this.host = host;
@@ -115,7 +116,8 @@ public class Spotify100 implements ConsumerSchema {
     }
 
     @Override
-    public void consume(Consumer consumer, byte[] message) throws ConsumerSchemaException {
+    public void consume(final IngestionGroup ingestion, final byte[] message)
+            throws ConsumerSchemaException {
         final JsonMetric metric;
 
         try {
@@ -123,20 +125,26 @@ public class Spotify100 implements ConsumerSchema {
         } catch (final Exception e) {
             throw new ConsumerSchemaValidationException("Received invalid metric", e);
         }
+
         if (metric.getValue() == null) {
-            throw new ConsumerSchemaValidationException("Metric must have a value but this metric has a null value: "
-                    + metric);
+            throw new ConsumerSchemaValidationException(
+                    "Metric must have a value but this metric has a null value: " + metric);
         }
 
-        if (metric.getVersion() == null || !SCHEMA_VERSION.equals(metric.getVersion()))
-            throw new ConsumerSchemaValidationException(String.format("Invalid version {}, expected {}",
-                    metric.getVersion(), SCHEMA_VERSION));
+        if (metric.getVersion() == null || !SCHEMA_VERSION.equals(metric.getVersion())) {
+            throw new ConsumerSchemaValidationException(String.format(
+                    "Invalid version %s, expected %s", metric.getVersion(), SCHEMA_VERSION));
+        }
 
-        if (metric.getTime() == null)
-            throw new ConsumerSchemaValidationException("'" + TIME + "' field must be defined: " + message);
+        if (metric.getTime() == null) {
+            throw new ConsumerSchemaValidationException(
+                    "'" + TIME + "' field must be defined: " + message);
+        }
 
-        if (metric.getKey() == null)
-            throw new ConsumerSchemaValidationException("'" + KEY + "' field must be defined: " + message);
+        if (metric.getKey() == null) {
+            throw new ConsumerSchemaValidationException(
+                    "'" + KEY + "' field must be defined: " + message);
+        }
 
         final Map<String, String> tags = new HashMap<String, String>(metric.getAttributes());
         tags.put(HOST, metric.getHost());
@@ -145,7 +153,7 @@ public class Spotify100 implements ConsumerSchema {
         final List<Point> points = ImmutableList.of(new Point(metric.getTime(), metric.getValue()));
 
         try {
-            consumer.write(new WriteMetric(series, MetricCollection.points(points)));
+            ingestion.write(new WriteMetric(series, MetricCollection.points(points)));
         } catch (final Exception e) {
             throw new FatalSchemaException("Write failed", e);
         }

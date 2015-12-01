@@ -8,6 +8,7 @@ import static org.mockito.Mockito.spy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -50,14 +51,21 @@ public class GroupingAggregationTest {
 
     @Test
     public void testSession() {
-        final Aggregation each = mock(Aggregation.class);
+        final AggregationInstance each = mock(AggregationInstance.class);
 
-        final GroupingAggregation a = spy(new GroupingAggregation(ImmutableList.of("group"), each) {
-            @Override
-            protected Map<String, String> key(Map<String, String> input) {
-                return null;
-            }
-        });
+        final GroupingAggregation a =
+                spy(new GroupingAggregation(Optional.of(ImmutableList.of("group")), each) {
+                    @Override
+                    protected Map<String, String> key(Map<String, String> input) {
+                        return null;
+                    }
+
+                    @Override
+                    protected AggregationInstance newInstance(final Optional<List<String>> of,
+                            final AggregationInstance each) {
+                        return this;
+                    }
+                });
 
         doReturn(key1).when(a).key(key1);
         doReturn(key2).when(a).key(key2);
@@ -67,10 +75,12 @@ public class GroupingAggregationTest {
 
     @Test
     public void testChainedSessions() {
-        final GroupingAggregation g1 = new GroupAggregation(ImmutableList.of("site", "host"), EmptyAggregation.INSTANCE);
-        final GroupingAggregation g2 = new GroupAggregation(ImmutableList.of("site"), EmptyAggregation.INSTANCE);
+        final GroupingAggregation g1 = new GroupInstance(
+                Optional.of(ImmutableList.of("site", "host")), EmptyInstance.INSTANCE);
+        final GroupingAggregation g2 =
+                new GroupInstance(Optional.of(ImmutableList.of("site")), EmptyInstance.INSTANCE);
 
-        final ChainAggregation chain = new ChainAggregation(ImmutableList.of(g1, g2));
+        final ChainInstance chain = new ChainInstance(ImmutableList.of(g1, g2));
 
         final List<AggregationState> states = new ArrayList<>();
 
@@ -84,18 +94,24 @@ public class GroupingAggregationTest {
         states.add(AggregationState.forSeries(s3));
         states.add(AggregationState.forSeries(s4));
 
-        final AggregationSession session = chain.session(states, new DateRange(0, 10000)).getSession();
+        final AggregationSession session =
+                chain.session(states, new DateRange(0, 10000)).getSession();
 
-        session.updatePoints(s4.getTags(), ImmutableSet.of(s4), ImmutableList.of(new Point(4, 4.0)));
-        session.updatePoints(s3.getTags(), ImmutableSet.of(s3), ImmutableList.of(new Point(3, 3.0)));
-        session.updatePoints(s2.getTags(), ImmutableSet.of(s2), ImmutableList.of(new Point(2, 2.0)));
-        session.updatePoints(s1.getTags(), ImmutableSet.of(s1), ImmutableList.of(new Point(1, 1.0)));
+        session.updatePoints(s4.getTags(), ImmutableSet.of(s4),
+                ImmutableList.of(new Point(4, 4.0)));
+        session.updatePoints(s3.getTags(), ImmutableSet.of(s3),
+                ImmutableList.of(new Point(3, 3.0)));
+        session.updatePoints(s2.getTags(), ImmutableSet.of(s2),
+                ImmutableList.of(new Point(2, 2.0)));
+        session.updatePoints(s1.getTags(), ImmutableSet.of(s1),
+                ImmutableList.of(new Point(1, 1.0)));
 
         final List<AggregationData> result = session.result().getResult();
 
         assertEquals(3, result.size());
 
-        final Set<Map<String, String>> expected = result.stream().map(AggregationData::getGroup).collect(Collectors.toSet());
+        final Set<Map<String, String>> expected =
+                result.stream().map(AggregationData::getGroup).collect(Collectors.toSet());
 
         for (final AggregationData data : result) {
             if (data.getGroup().equals(ImmutableMap.of("site", "lon"))) {
@@ -105,7 +121,8 @@ public class GroupingAggregationTest {
             }
 
             if (data.getGroup().equals(ImmutableMap.of("site", "sto"))) {
-                assertEquals(ImmutableList.of(new Point(1, 1.0), new Point(2, 2.0)), data.getMetrics().getData());
+                assertEquals(ImmutableList.of(new Point(1, 1.0), new Point(2, 2.0)),
+                        data.getMetrics().getData());
                 expected.remove(ImmutableMap.of("site", "sto"));
                 continue;
             }

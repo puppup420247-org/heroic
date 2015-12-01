@@ -30,12 +30,9 @@ import java.util.concurrent.atomic.LongAdder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
-import com.spotify.heroic.common.BackendGroupException;
 import com.spotify.heroic.common.Statistics;
 import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.ingestion.IngestionManager;
-import com.spotify.heroic.metric.WriteMetric;
-import com.spotify.heroic.metric.WriteResult;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
@@ -61,7 +58,8 @@ public class KafkaConsumer implements Consumer {
     private final List<String> topics;
     private final Map<String, String> config;
 
-    public KafkaConsumer(AtomicInteger consuming, AtomicInteger total, AtomicLong errors, LongAdder consumed, List<String> topics, Map<String, String> config) {
+    public KafkaConsumer(AtomicInteger consuming, AtomicInteger total, AtomicLong errors,
+            LongAdder consumed, List<String> topics, Map<String, String> config) {
         this.consuming = consuming;
         this.total = total;
         this.errors = errors;
@@ -86,39 +84,28 @@ public class KafkaConsumer implements Consumer {
     }
 
     @Override
-    public AsyncFuture<WriteResult> write(WriteMetric write) {
-        try {
-            return ingestion.write(null, write);
-        } catch (BackendGroupException e) {
-            log.error("Unable to find group to write to", e);
-            // still counts as a valid write.
-            return async.resolved(null);
-        }
-    }
-
-    @Override
     public Statistics getStatistics() {
         final long consuming = this.consuming.get();
         final long total = this.total.get();
         final long errors = this.errors.get();
         final long consumed = this.consumed.sum();
 
-        return Statistics.of(
-                ImmutableMap.<String, Long> of(CONSUMING, consuming, TOTAL, total, ERRORS, errors, CONSUMED, consumed));
+        return Statistics.of(ImmutableMap.<String, Long> of(CONSUMING, consuming, TOTAL, total,
+                ERRORS, errors, CONSUMED, consumed));
     }
 
     @Override
     public AsyncFuture<Void> pause() {
         // pause all threads
-        return connection.doto(c -> async.collectAndDiscard(
-                ImmutableList.copyOf(c.getThreads().stream().map(ConsumerThread::pauseConsumption).iterator())));
+        return connection.doto(c -> async.collectAndDiscard(ImmutableList
+                .copyOf(c.getThreads().stream().map(ConsumerThread::pauseConsumption).iterator())));
     }
 
     @Override
     public AsyncFuture<Void> resume() {
         // resume all threads
-        return connection.doto(c -> async.collectAndDiscard(
-                ImmutableList.copyOf(c.getThreads().stream().map(ConsumerThread::resumeConsumption).iterator())));
+        return connection.doto(c -> async.collectAndDiscard(ImmutableList.copyOf(
+                c.getThreads().stream().map(ConsumerThread::resumeConsumption).iterator())));
     }
 
     @Override
@@ -126,14 +113,17 @@ public class KafkaConsumer implements Consumer {
         final Borrowed<Connection> b = connection.borrow();
 
         if (!b.isValid()) {
-            return String.format("KafkaConsumer(non-configured, topics=%s, config=%s)", topics, config);
+            return String.format("KafkaConsumer(non-configured, topics=%s, config=%s)", topics,
+                    config);
         }
 
         try {
             final Connection c = b.get();
             final int threads = c.getThreads().size();
             final int paused = c.getThreads().stream().mapToInt(t -> t.isPaused() ? 1 : 0).sum();
-            return String.format("KafkaConsumer(configured, topics=%s, config=%s, threads=%d, paused=%d)", topics, config, threads, paused);
+            return String.format(
+                    "KafkaConsumer(configured, topics=%s, config=%s, threads=%d, paused=%d)",
+                    topics, config, threads, paused);
         } finally {
             b.release();
         }

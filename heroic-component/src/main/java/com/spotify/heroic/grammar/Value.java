@@ -21,12 +21,62 @@
 
 package com.spotify.heroic.grammar;
 
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
 public interface Value {
-    public Value sub(Value other);
+    default Value sub(Value other) {
+        throw context().error(String.format("%s: unsupported operator: -", this));
+    }
 
-    public Value add(Value other);
+    default Value add(Value other) {
+        throw context().error(String.format("%s: unsupported operator: +", this));
+    }
 
-    public <T> T cast(T to);
+    <T> T cast(T to);
 
-    public <T> T cast(Class<T> to);
+    <T> T cast(Class<T> to);
+
+    Context context();
+
+    default Optional<Value> toOptional() {
+        return Optional.of(this);
+    }
+
+    static AggregationValue aggregation(String name) {
+        return aggregation(name, list(), ImmutableMap.of());
+    }
+
+    static AggregationValue aggregation(String name, ListValue arguments) {
+        return aggregation(name, arguments, ImmutableMap.of());
+    }
+
+    static AggregationValue aggregation(String name, ListValue arguments,
+            Map<String, Value> keywords) {
+        return new AggregationValue(name, arguments, keywords, Context.empty());
+    }
+
+    static ListValue list(Value... values) {
+        return new ListValue(ImmutableList.copyOf(values), Context.empty());
+    }
+
+    static DurationValue duration(TimeUnit unit, long value) {
+        return new DurationValue(unit, value, Context.empty());
+    }
+
+    static StringValue string(String string) {
+        return new StringValue(string, Context.empty());
+    }
+
+    static IntValue number(long value) {
+        return new IntValue(value, Context.empty());
+    }
+
+    static Value empty() {
+        return new EmptyValue(Context.empty());
+    }
 }

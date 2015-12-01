@@ -28,9 +28,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 
-import com.spotify.heroic.consumer.Consumer;
 import com.spotify.heroic.consumer.ConsumerSchema;
 import com.spotify.heroic.consumer.ConsumerSchemaValidationException;
+import com.spotify.heroic.ingestion.IngestionGroup;
 import com.spotify.heroic.statistics.ConsumerReporter;
 
 import eu.toolchain.async.AsyncFramework;
@@ -46,31 +46,34 @@ public final class ConsumerThread extends Thread {
     private static final long MAX_SLEEP = 40;
 
     private final AsyncFramework async;
+    private final IngestionGroup ingestion;
     private final String name;
     private final ConsumerReporter reporter;
     private final KafkaStream<byte[], byte[]> stream;
-    private final Consumer consumer;
     private final ConsumerSchema schema;
     private final AtomicInteger active;
     private final AtomicLong errors;
     private final LongAdder consumed;
-    // use a latch as a signal so that we can block on it instead of Thread#sleep (or similar) which would be a pain to interrupt.
+    // use a latch as a signal so that we can block on it instead of Thread#sleep (or similar) which
+    // would be a pain to
+    // interrupt.
     private final CountDownLatch stopSignal = new CountDownLatch(1);
 
     protected final ResolvableFuture<Void> stopFuture;
 
     private volatile AtomicReference<CountDownLatch> paused = new AtomicReference<>();
 
-    public ConsumerThread(final AsyncFramework async, final String name, final ConsumerReporter reporter, final KafkaStream<byte[], byte[]> stream,
-            final Consumer consumer, final ConsumerSchema schema, final AtomicInteger active, final AtomicLong errors,
-            final LongAdder consumed) {
+    public ConsumerThread(final AsyncFramework async, final IngestionGroup ingestion,
+            final String name, final ConsumerReporter reporter,
+            final KafkaStream<byte[], byte[]> stream, final ConsumerSchema schema,
+            final AtomicInteger active, final AtomicLong errors, final LongAdder consumed) {
         super(String.format("%s: %s", ConsumerThread.class.getCanonicalName(), name));
 
         this.async = async;
+        this.ingestion = ingestion;
         this.name = name;
         this.reporter = reporter;
         this.stream = stream;
-        this.consumer = consumer;
         this.schema = schema;
         this.active = active;
         this.errors = errors;
@@ -158,7 +161,8 @@ public final class ConsumerThread extends Thread {
 
         log.info("Pausing");
 
-        /* block on stop signal while paused, re-check since multiple calls to {#link #pause()} might swap it */
+        /* block on stop signal while paused, re-check since multiple calls to {#link #pause()}
+         * might swap it */
         while (p != null && stopSignal.getCount() > 0) {
             p.await();
             p = paused.get();
@@ -185,7 +189,7 @@ public final class ConsumerThread extends Thread {
 
     private boolean consumeOne(final byte[] body) {
         try {
-            schema.consume(consumer, body);
+            schema.consume(ingestion, body);
             reporter.reportMessageSize(body.length);
             consumed.increment();
             return false;
@@ -204,8 +208,8 @@ public final class ConsumerThread extends Thread {
     private void handleRetry(long sleep) throws InterruptedException {
         log.info("{}: Retrying in {} second(s)", name, sleep);
 
-        /* decrementing the number of active active consumers indicates an error to the consumer module. This makes sure
-         * that the status of the service is set to as 'failing'. */
+        /* decrementing the number of active active consumers indicates an error to the consumer
+         * module. This makes sure that the status of the service is set to as 'failing'. */
         active.decrementAndGet();
         stopSignal.await(sleep, TimeUnit.SECONDS);
         active.incrementAndGet();

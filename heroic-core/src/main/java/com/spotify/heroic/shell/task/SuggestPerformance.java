@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.shell.task;
 
 import java.io.IOException;
@@ -103,9 +124,9 @@ public class SuggestPerformance implements ShellTask {
         for (final Callable<TestResult> test : tests) {
             final TestResult result = test.call();
 
-            final TestOutput output = new TestOutput(result.getContext(), result.getConcurrency(), result.getErrors(),
-                    result.getMismatches(), result.getMatches(), result.getCount(),
-                    result.getTimes());
+            final TestOutput output = new TestOutput(result.getContext(), result.getConcurrency(),
+                    result.getErrors(), result.getMismatches(), result.getMatches(),
+                    result.getCount(), result.getTimes());
 
             io.out().println(m.writeValueAsString(output));
             io.out().flush();
@@ -114,8 +135,9 @@ public class SuggestPerformance implements ShellTask {
         return async.resolved();
     }
 
-    private Callable<TestResult> setupTest(final PrintWriter out, final String context, final int concurrency,
-            final RangeFilter filter, final TestCase c, final SuggestBackend s) {
+    private Callable<TestResult> setupTest(final PrintWriter out, final String context,
+            final int concurrency, final RangeFilter filter, final TestCase c,
+            final SuggestBackend s) {
         return new Callable<TestResult>() {
             @Override
             public TestResult call() throws Exception {
@@ -129,7 +151,8 @@ public class SuggestPerformance implements ShellTask {
                 final List<TestSuggestion> suggestions = c.getSuggestions();
 
                 for (int i = 0; i < concurrency; i++) {
-                    futures.add(service.submit(setupTestThread(out, index, count, suggestions, filter, s)));
+                    futures.add(service
+                            .submit(setupTestThread(out, index, count, suggestions, filter, s)));
                 }
 
                 final List<Long> times = new ArrayList<>();
@@ -149,13 +172,15 @@ public class SuggestPerformance implements ShellTask {
 
                 service.shutdown();
                 service.awaitTermination(10, TimeUnit.SECONDS);
-                return new TestResult(context, concurrency, times, errors, mismatches, matches, count);
+                return new TestResult(context, concurrency, times, errors, mismatches, matches,
+                        count);
             }
         };
     }
 
-    private Callable<TestPartialResult> setupTestThread(final PrintWriter out, final AtomicInteger index,
-            final int count, final List<TestSuggestion> suggestions, final RangeFilter filter, final SuggestBackend s) {
+    private Callable<TestPartialResult> setupTestThread(final PrintWriter out,
+            final AtomicInteger index, final int count, final List<TestSuggestion> suggestions,
+            final RangeFilter filter, final SuggestBackend s) {
         return new Callable<TestPartialResult>() {
             @Override
             public TestPartialResult call() throws Exception {
@@ -172,8 +197,8 @@ public class SuggestPerformance implements ShellTask {
 
                     final Suggestion input = test.getInput();
 
-                    final AsyncFuture<TagSuggest> future = s.tagSuggest(filter, MatchOptions.builder().build(),
-                            input.getKey(), input.getValue());
+                    final AsyncFuture<TagSuggest> future = s.tagSuggest(filter,
+                            MatchOptions.builder().build(), input.getKey(), input.getValue());
 
                     final TagSuggest result;
 
@@ -195,8 +220,9 @@ public class SuggestPerformance implements ShellTask {
                     for (TagSuggest.Suggestion s : result.getSuggestions()) {
                         expect.remove(new Suggestion(s.getKey(), s.getValue()));
 
-                        if (expect.isEmpty())
+                        if (expect.isEmpty()) {
                             break;
+                        }
                     }
 
                     if (!expect.isEmpty()) {
@@ -227,7 +253,8 @@ public class SuggestPerformance implements ShellTask {
 
     @ToString
     private static class Parameters extends AbstractShellTaskParams {
-        @Option(name = "-g", aliases = { "--group" }, usage = "Backend group to use", metaVar = "<group>")
+        @Option(name = "-g", aliases = { "--group" }, usage = "Backend group to use",
+                metaVar = "<group>")
         private String group;
 
         @Option(name = "-f", usage = "File to load tests from", metaVar = "<yaml>")
@@ -302,7 +329,8 @@ public class SuggestPerformance implements ShellTask {
         private final Suggestion input;
         private final Set<Suggestion> expect;
 
-        public TestSuggestion(@JsonProperty("input") Suggestion input, @JsonProperty("expect") Set<Suggestion> expect) {
+        public TestSuggestion(@JsonProperty("input") Suggestion input,
+                @JsonProperty("expect") Set<Suggestion> expect) {
             this.input = input;
             this.expect = expect;
         }

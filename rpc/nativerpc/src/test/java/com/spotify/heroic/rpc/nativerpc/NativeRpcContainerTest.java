@@ -13,12 +13,14 @@ import eu.toolchain.async.AsyncFuture;
 public class NativeRpcContainerTest {
     @Test
     public void testTypeReference() {
-        final NativeRpcContainer.Endpoint<Map<String, Integer>, String> endpoint = new NativeRpcContainer.Endpoint<Map<String, Integer>, String>() {
-            @Override
-            public AsyncFuture<String> handle(Map<String, Integer> request) throws Exception {
-                return null;
-            }
-        };
+        final NativeRpcEndpoint<Map<String, Integer>, String> endpoint =
+                new NativeRpcEndpoint<Map<String, Integer>, String>() {
+                    @Override
+                    public AsyncFuture<String> handle(Map<String, Integer> request)
+                            throws Exception {
+                        return null;
+                    }
+                };
 
         final Type type = endpoint.requestType().getType();
         assertTrue(type instanceof ParameterizedType);

@@ -1,3 +1,24 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.elasticsearch;
 
 import java.util.HashSet;
@@ -46,14 +67,17 @@ public abstract class AbstractElasticsearchMetadataBackend {
         return future;
     }
 
-    protected AsyncFuture<FindSeries> scrollOverSeries(final Connection c, final SearchRequestBuilder request,
-            final long limit, final Function<SearchHit, Series> converter) {
+    protected AsyncFuture<FindSeries> scrollOverSeries(final Connection c,
+            final SearchRequestBuilder request, final long limit,
+            final Function<SearchHit, Series> converter) {
         return bind(request.execute()).lazyTransform((initial) -> {
             if (initial.getScrollId() == null) {
                 return async.resolved(FindSeries.EMPTY);
             }
 
-            return bind(c.prepareSearchScroll(initial.getScrollId()).setScroll(SCROLL_TIME).execute()).lazyTransform((response) -> {
+            return bind(
+                    c.prepareSearchScroll(initial.getScrollId()).setScroll(SCROLL_TIME).execute())
+                            .lazyTransform((response) -> {
                 final ResolvableFuture<FindSeries> future = async.future();
                 final Set<Series> series = new HashSet<>();
                 final AtomicInteger count = new AtomicInteger();
@@ -69,12 +93,14 @@ public abstract class AbstractElasticsearchMetadataBackend {
 
                         count.addAndGet(hits.length);
 
-                        if (hits.length == 0 || count.get() >= limit || response.getScrollId() == null) {
+                        if (hits.length == 0 || count.get() >= limit
+                                || response.getScrollId() == null) {
                             future.resolve(new FindSeries(series, series.size(), 0));
                             return;
                         }
 
-                        bind(c.prepareSearchScroll(response.getScrollId()).setScroll(SCROLL_TIME).execute()).onDone(new FutureDone<SearchResponse>() {
+                        bind(c.prepareSearchScroll(response.getScrollId()).setScroll(SCROLL_TIME)
+                                .execute()).onDone(new FutureDone<SearchResponse>() {
                             @Override
                             public void failed(Throwable cause) throws Exception {
                                 future.fail(cause);

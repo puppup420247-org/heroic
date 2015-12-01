@@ -30,7 +30,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -38,12 +40,16 @@ import javax.inject.Inject;
 
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ExecutionInfo;
+import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.utils.Bytes;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.async.AsyncObservable;
+import com.spotify.heroic.async.AsyncObserver;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.Groups;
 import com.spotify.heroic.common.LifeCycle;
@@ -51,23 +57,24 @@ import com.spotify.heroic.common.Series;
 import com.spotify.heroic.metric.AbstractMetricBackend;
 import com.spotify.heroic.metric.BackendEntry;
 import com.spotify.heroic.metric.BackendKey;
-import com.spotify.heroic.metric.BackendKeySet;
+import com.spotify.heroic.metric.BackendKeyFilter;
 import com.spotify.heroic.metric.FetchData;
 import com.spotify.heroic.metric.FetchQuotaWatcher;
 import com.spotify.heroic.metric.MetricCollection;
 import com.spotify.heroic.metric.MetricType;
 import com.spotify.heroic.metric.Point;
-import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.metric.QueryTrace;
 import com.spotify.heroic.metric.WriteMetric;
 import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.metric.datastax.schema.Schema;
 import com.spotify.heroic.metric.datastax.schema.Schema.PreparedFetch;
+import com.spotify.heroic.metric.datastax.schema.SchemaBoundStatement;
 import com.spotify.heroic.metric.datastax.schema.SchemaInstance;
 import com.spotify.heroic.statistics.MetricBackendReporter;
 
 import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
+import eu.toolchain.async.Borrowed;
 import eu.toolchain.async.FutureDone;
 import eu.toolchain.async.Managed;
 import eu.toolchain.async.ResolvableFuture;
@@ -82,11 +89,14 @@ import lombok.extern.slf4j.Slf4j;
  * MetricBackend for Heroic cassandra datastore.
  */
 @Slf4j
-@ToString(of = { "connection" })
+@ToString(of = {"connection"})
 public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle {
-    public static final QueryTrace.Identifier KEYS = QueryTrace.identifier(DatastaxBackend.class, "keys");
-    public static final QueryTrace.Identifier FETCH_SEGMENT = QueryTrace.identifier(DatastaxBackend.class, "fetch_segment");
-    public static final QueryTrace.Identifier FETCH = QueryTrace.identifier(DatastaxBackend.class, "fetch");
+    public static final QueryTrace.Identifier KEYS =
+            QueryTrace.identifier(DatastaxBackend.class, "keys");
+    public static final QueryTrace.Identifier FETCH_SEGMENT =
+            QueryTrace.identifier(DatastaxBackend.class, "fetch_segment");
+    public static final QueryTrace.Identifier FETCH =
+            QueryTrace.identifier(DatastaxBackend.class, "fetch");
 
     private final AsyncFramework async;
     private final MetricBackendReporter reporter;
@@ -164,38 +174,73 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
     }
 
     @Override
-    public AsyncFuture<BackendKeySet> keys(BackendKey start, final int limit, final QueryOptions options) {
-        return connection.doto(c -> {
-            final Optional<ByteBuffer> first = start == null ? Optional.empty()
-                    : Optional.of(c.schema.rowKey().serialize(new MetricsRowKey(start.getSeries(), start.getBase())));
+    public AsyncObservable<List<BackendKey>> streamKeys(BackendKeyFilter filter,
+            final QueryOptions options) {
+        return observer -> {
+            final Borrowed<Connection> b = connection.borrow();
 
-            final Statement stmt;
-            final Transform<RowFetchResult<BackendKey>, AsyncFuture<BackendKeySet>> converter;
+            if (!b.isValid()) {
+                observer.fail(new RuntimeException("failed to borrow connection"));
+                return;
+            }
+
+            final Connection c = b.get();
 
             final Stopwatch w = Stopwatch.createStarted();
 
-            if (options.isTracing()) {
-                stmt = c.schema.keysPaging(first, limit).enableTracing();
-                converter = result -> {
-                    return buildTrace(c, KEYS, w.elapsed(TimeUnit.NANOSECONDS), result.info).directTransform(trace -> {
-                        return new BackendKeySet(result.data, Optional.of(trace));
-                    });
+            final SchemaBoundStatement select = c.schema.keyUtils().selectKeys(filter);
+
+            prepareCachedStatement(c, select).directTransform(stmt -> {
+                BoundStatement bound = stmt.bind(select.getBindings().toArray());
+
+                if (options.isTracing()) {
+                    bound.enableTracing();
+                }
+
+                options.getFetchSize().ifPresent(bound::setFetchSize);
+
+                final AsyncObserver<List<BackendKey>> helperObserver =
+                        new AsyncObserver<List<BackendKey>>() {
+                    @Override
+                    public AsyncFuture<Void> observe(List<BackendKey> keys) throws Exception {
+                        return observer.observe(keys);
+                    }
+
+                    @Override
+                    public void cancel() throws Exception {
+                        try {
+                            observer.cancel();
+                        } finally {
+                            b.release();
+                        }
+                    }
+
+                    @Override
+                    public void fail(Throwable cause) throws Exception {
+                        try {
+                            observer.fail(cause);
+                        } finally {
+                            b.release();
+                        }
+                    }
+
+                    @Override
+                    public void end() throws Exception {
+                        try {
+                            observer.end();
+                        } finally {
+                            b.release();
+                        }
+                    }
                 };
-            } else {
-                stmt = c.schema.keysPaging(first, limit);
-                converter = result -> {
-                    final QueryTrace trace = new QueryTrace(KEYS, w.elapsed(TimeUnit.NANOSECONDS));
-                    return async.resolved(new BackendKeySet(result.data, Optional.of(trace)));
-                };
-            }
 
-            final ResolvableFuture<BackendKeySet> future = async.future();
+                final RowStreamHelper<BackendKey> helper =
+                        new RowStreamHelper<BackendKey>(helperObserver, c.schema.keyConverter());
 
-            Async.bind(async, c.session.executeAsync(stmt)).onDone(
-                    new RowFetchHelper<BackendKey, BackendKeySet>(future, c.schema.keyConverter(), converter));
-
-            return future;
-        });
+                Async.bind(async, c.session.executeAsync(bound)).onDone(helper);
+                return null;
+            });
+        };
     }
 
     @Override
@@ -203,7 +248,8 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
         final MetricsRowKey rowKey = new MetricsRowKey(key.getSeries(), key.getBase());
 
         return connection.doto(c -> {
-            return async.resolved(ImmutableList.of(Bytes.toHexString(c.schema.rowKey().serialize(rowKey))));
+            return async.resolved(
+                    ImmutableList.of(Bytes.toHexString(c.schema.rowKey().serialize(rowKey))));
         });
     }
 
@@ -211,15 +257,18 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
     public AsyncFuture<List<BackendKey>> deserializeKeyFromHex(String key) {
         return connection.doto(c -> {
             final MetricsRowKey rowKey = c.schema.rowKey().deserialize(Bytes.fromHexString(key));
-            return async.resolved(ImmutableList.of(new BackendKey(rowKey.getSeries(), rowKey.getBase())));
+            return async.resolved(
+                    ImmutableList.of(new BackendKey(rowKey.getSeries(), rowKey.getBase())));
         });
     }
 
     @Override
     public AsyncFuture<Void> deleteKey(BackendKey key, QueryOptions options) {
         return connection.doto(c -> {
-            final ByteBuffer k = c.schema.rowKey().serialize(new MetricsRowKey(key.getSeries(), key.getBase()));
-            return Async.bind(async, c.session.executeAsync(c.schema.deleteKey(k))).directTransform(result -> {
+            final ByteBuffer k =
+                    c.schema.rowKey().serialize(new MetricsRowKey(key.getSeries(), key.getBase()));
+            return Async.bind(async, c.session.executeAsync(c.schema.deleteKey(k)))
+                    .directTransform(result -> {
                 return null;
             });
         });
@@ -228,8 +277,10 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
     @Override
     public AsyncFuture<Long> countKey(BackendKey key, QueryOptions options) {
         return connection.doto(c -> {
-            final ByteBuffer k = c.schema.rowKey().serialize(new MetricsRowKey(key.getSeries(), key.getBase()));
-            return Async.bind(async, c.session.executeAsync(c.schema.countKey(k))).directTransform(result -> {
+            final ByteBuffer k =
+                    c.schema.rowKey().serialize(new MetricsRowKey(key.getSeries(), key.getBase()));
+            return Async.bind(async, c.session.executeAsync(c.schema.countKey(k)))
+                    .directTransform(result -> {
                 if (!result.isFullyFetched()) {
                     throw new IllegalStateException("Row is not fully fetched");
                 }
@@ -239,7 +290,112 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
         });
     }
 
-    private AsyncFuture<WriteResult> doWrite(final Connection c, final SchemaInstance.WriteSession session, final WriteMetric w) throws IOException {
+    @Override
+    public AsyncFuture<MetricCollection> fetchRow(BackendKey key) {
+        return connection.doto(c -> {
+            final Schema.PreparedFetch f = c.schema.row(key);
+
+            final ResolvableFuture<MetricCollection> future = async.future();
+
+            Async.bind(async, c.session.executeAsync(f.fetch(Integer.MAX_VALUE))).onDone(
+                    new RowFetchHelper<Point, MetricCollection>(future, f.converter(), result -> {
+                return async.resolved(MetricCollection.points(result.getData()));
+            }));
+
+            return future;
+        });
+    }
+
+    @Override
+    public AsyncObservable<MetricCollection> streamRow(final BackendKey key) {
+        return observer -> {
+            final Borrowed<Connection> b = connection.borrow();
+
+            if (!b.isValid()) {
+                observer.fail(new RuntimeException("failed to borrow connection"));
+                return;
+            }
+
+            final Connection c = b.get();
+
+            final Schema.PreparedFetch f = c.schema.row(key);
+
+            final AsyncObserver<List<Point>> helperObserver = new AsyncObserver<List<Point>>() {
+                @Override
+                public AsyncFuture<Void> observe(List<Point> value) throws Exception {
+                    return observer.observe(MetricCollection.points(value));
+                }
+
+                @Override
+                public void cancel() throws Exception {
+                    try {
+                        observer.cancel();
+                    } finally {
+                        b.release();
+                    }
+                }
+
+                @Override
+                public void fail(Throwable cause) throws Exception {
+                    try {
+                        observer.fail(cause);
+                    } finally {
+                        b.release();
+                    }
+                }
+
+                @Override
+                public void end() throws Exception {
+                    try {
+                        observer.end();
+                    } finally {
+                        b.release();
+                    }
+                }
+            };
+
+            final RowStreamHelper<Point> helper =
+                    new RowStreamHelper<Point>(helperObserver, f.converter());
+
+            Async.bind(async, c.session.executeAsync(f.fetch(Integer.MAX_VALUE))).onDone(helper);
+        };
+    }
+
+    private final ConcurrentMap<String, AsyncFuture<PreparedStatement>> prepared =
+            new ConcurrentHashMap<>();
+
+    private final Object preparedLock = new Object();
+
+    private AsyncFuture<PreparedStatement> prepareCachedStatement(final Connection c,
+            final SchemaBoundStatement bound) {
+        final AsyncFuture<PreparedStatement> existing = prepared.get(bound.getStatement());
+
+        if (existing != null) {
+            return existing;
+        }
+
+        synchronized (preparedLock) {
+            final AsyncFuture<PreparedStatement> sneaky = prepared.get(bound.getStatement());
+
+            if (sneaky != null) {
+                return sneaky;
+            }
+
+            final AsyncFuture<PreparedStatement> newPrepared =
+                    Async.bind(async, c.session.prepareAsync(bound.getStatement()))
+                            .directTransform(stmt -> {
+                                // replace old future with a more efficient one.
+                                prepared.put(bound.getStatement(), async.resolved(stmt));
+                                return stmt;
+                            });
+
+            prepared.put(bound.getStatement(), newPrepared);
+            return newPrepared;
+        }
+    }
+
+    private AsyncFuture<WriteResult> doWrite(final Connection c,
+            final SchemaInstance.WriteSession session, final WriteMetric w) throws IOException {
         final List<Callable<AsyncFuture<Long>>> callables = new ArrayList<>();
 
         final MetricCollection g = w.getData();
@@ -279,7 +435,8 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
         }, 500);
     }
 
-    private AsyncFuture<QueryTrace> buildTrace(final Connection c, final QueryTrace.Identifier ident, final long elapsed, List<ExecutionInfo> info) {
+    private AsyncFuture<QueryTrace> buildTrace(final Connection c,
+            final QueryTrace.Identifier ident, final long elapsed, List<ExecutionInfo> info) {
         final ImmutableList.Builder<AsyncFuture<QueryTrace>> traces = ImmutableList.builder();
 
         for (final ExecutionInfo i : info) {
@@ -299,10 +456,11 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
                     children.add(new QueryTrace(QueryTrace.identifier(e.getName()), eventElapsed));
                 }
 
-                final QueryTrace.Identifier segment = QueryTrace
-                        .identifier(i.getQueriedHost().toString() + "[" + qt.getTraceId().toString() + "]");
+                final QueryTrace.Identifier segment = QueryTrace.identifier(
+                        i.getQueriedHost().toString() + "[" + qt.getTraceId().toString() + "]");
 
-                final long segmentElapsed = TimeUnit.NANOSECONDS.convert(qt.getDurationMicros(), TimeUnit.MICROSECONDS);
+                final long segmentElapsed =
+                        TimeUnit.NANOSECONDS.convert(qt.getDurationMicros(), TimeUnit.MICROSECONDS);
 
                 return new QueryTrace(segment, segmentElapsed, children.build());
             }));
@@ -316,8 +474,9 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
     private AsyncFuture<FetchData> fetchDataPoints(final Series series, DateRange range,
             final FetchQuotaWatcher watcher, final QueryOptions options) {
 
-        if (!watcher.mayReadData())
+        if (!watcher.mayReadData()) {
             throw new IllegalArgumentException("query violated data limit");
+        }
 
         final int limit = watcher.getReadDataQuota();
 
@@ -347,13 +506,16 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
                             w.elapsed(TimeUnit.NANOSECONDS), result.getInfo());
                 } else {
                     stmt = f.fetch(limit);
-                    traceBuilder = result -> async.resolved(new QueryTrace(FETCH_SEGMENT, w.elapsed(TimeUnit.NANOSECONDS)));
+                    traceBuilder = result -> async.resolved(
+                            new QueryTrace(FETCH_SEGMENT, w.elapsed(TimeUnit.NANOSECONDS)));
                 }
 
-                Async.bind(async, c.session.executeAsync(stmt)).onDone(new RowFetchHelper<Point, FetchData>(future, f.converter(), result -> {
+                Async.bind(async, c.session.executeAsync(stmt)).onDone(
+                        new RowFetchHelper<Point, FetchData>(future, f.converter(), result -> {
                     return traceBuilder.apply(result).directTransform(trace -> {
                         final ImmutableList<Long> times = ImmutableList.of(trace.getElapsed());
-                        final List<MetricCollection> groups = ImmutableList.of(MetricCollection.points(result.getData()));
+                        final List<MetricCollection> groups =
+                                ImmutableList.of(MetricCollection.points(result.getData()));
                         return new FetchData(series, times, groups, trace);
                     });
                 }));
@@ -431,7 +593,8 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
             final AsyncFuture<T> result;
 
             try {
-                result = converter.transform(new RowFetchResult<>(rows.getAllExecutionInfo(), data));
+                result = converter
+                        .transform(new RowFetchResult<>(rows.getAllExecutionInfo(), data));
             } catch (final Exception e) {
                 future.fail(e);
                 return;
@@ -458,21 +621,102 @@ public class DatastaxBackend extends AbstractMetricBackend implements LifeCycle 
         }
     }
 
-    private static final String SELECT_EVENTS_FORMAT = "SELECT * FROM system_traces.events WHERE session_id = ?";
+    @RequiredArgsConstructor
+    private final class RowStreamHelper<R> implements FutureDone<ResultSet> {
+        private final AsyncObserver<List<R>> observer;
+        private final Transform<Row, R> rowConverter;
+
+        @Override
+        public void failed(Throwable cause) throws Exception {
+            observer.fail(cause);
+        }
+
+        @Override
+        public void cancelled() throws Exception {
+            observer.cancel();
+        }
+
+        @Override
+        public void resolved(final ResultSet rows) throws Exception {
+            int count = rows.getAvailableWithoutFetching();
+
+            final Optional<AsyncFuture<Void>> nextFetch = rows.isFullyFetched() ? Optional.empty()
+                    : Optional.of(Async.bind(async, rows.fetchMoreResults()));
+
+            final List<R> batch = new ArrayList<>();
+
+            while (count-- > 0) {
+                final R part;
+
+                try {
+                    part = rowConverter.transform(rows.one());
+                } catch (Exception e) {
+                    observer.fail(e);
+                    return;
+                }
+
+                batch.add(part);
+            }
+
+            observer.observe(batch).onDone(new FutureDone<Void>() {
+                @Override
+                public void failed(Throwable cause) throws Exception {
+                    observer.fail(cause);
+                }
+
+                @Override
+                public void cancelled() throws Exception {
+                    observer.cancel();
+                }
+
+                @Override
+                public void resolved(Void result) throws Exception {
+                    if (nextFetch.isPresent()) {
+                        nextFetch.get().onDone(new FutureDone<Void>() {
+                            @Override
+                            public void failed(Throwable cause) throws Exception {
+                                RowStreamHelper.this.failed(cause);
+                            }
+
+                            @Override
+                            public void cancelled() throws Exception {
+                                RowStreamHelper.this.cancelled();
+                            }
+
+                            @Override
+                            public void resolved(Void result) throws Exception {
+                                RowStreamHelper.this.resolved(rows);
+                            }
+                        });
+
+                        return;
+                    }
+
+                    observer.end();
+                }
+            });
+        }
+    }
+
+    private static final String SELECT_EVENTS_FORMAT =
+            "SELECT * FROM system_traces.events WHERE session_id = ?";
 
     /**
-     * Custom event fetcher based on the one available in {@link com.datastax.driver.core.QueryTrace}.
+     * Custom event fetcher based on the one available in
+     * {@link com.datastax.driver.core.QueryTrace}.
      *
      * We roll our own since the one available is blocking :(.
      */
     private AsyncFuture<List<Event>> getEvents(final Connection c, final UUID id) {
         final ResolvableFuture<List<Event>> future = async.future();
 
-        Async.bind(async, c.session.executeAsync(SELECT_EVENTS_FORMAT, id)).onDone(
-                new RowFetchHelper<Event, List<Event>>(future, row -> {
-                    return new Event(row.getString("activity"), row.getUUID("event_id").timestamp(),
-                            row.getInet("source"), row.getInt("source_elapsed"), row.getString("thread"));
-                }, result -> {
+        final Transform<Row, Event> converter = row -> {
+            return new Event(row.getString("activity"), row.getUUID("event_id").timestamp(),
+                    row.getInet("source"), row.getInt("source_elapsed"), row.getString("thread"));
+        };
+
+        Async.bind(async, c.session.executeAsync(SELECT_EVENTS_FORMAT, id))
+                .onDone(new RowFetchHelper<Event, List<Event>>(future, converter, result -> {
                     return async.resolved(ImmutableList.copyOf(result.getData()));
                 }));
 

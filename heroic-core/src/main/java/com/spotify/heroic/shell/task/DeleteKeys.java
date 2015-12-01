@@ -24,6 +24,7 @@ package com.spotify.heroic.shell.task;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -35,14 +36,15 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.kohsuke.args4j.Option;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
+import com.spotify.heroic.QueryOptions;
 import com.spotify.heroic.metric.BackendKey;
 import com.spotify.heroic.metric.MetricBackendGroup;
 import com.spotify.heroic.metric.MetricManager;
-import com.spotify.heroic.metric.QueryOptions;
 import com.spotify.heroic.shell.AbstractShellTaskParams;
 import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
@@ -60,6 +62,8 @@ import lombok.ToString;
 @TaskUsage("Delete all data for a set of keys")
 @TaskName("delete-keys")
 public class DeleteKeys implements ShellTask {
+    public static final Charset UTF8 = Charsets.UTF_8;
+
     @Inject
     private MetricManager metrics;
 
@@ -86,52 +90,7 @@ public class DeleteKeys implements ShellTask {
         final ImmutableList.Builder<Iterable<BackendKey>> keys = ImmutableList.builder();
 
         if (params.file != null) {
-            keys.add(new Iterable<BackendKey>() {
-                @Override
-                public Iterator<BackendKey> iterator() {
-                    final BufferedReader reader;
-
-                    try {
-                        reader = new BufferedReader(new InputStreamReader(io.newInputStream(params.file)));
-                    } catch (IOException e) {
-                        throw new RuntimeException("Failed to open file", e);
-                    }
-
-                    return new Iterator<BackendKey>() {
-                        private String line;
-
-                        @Override
-                        public boolean hasNext() {
-                            if (line != null) {
-                                return true;
-                            }
-
-                            try {
-                                line = reader.readLine();
-                            } catch (IOException e) {
-                                throw new RuntimeException("Failed to read line", e);
-                            }
-
-                            return line != null;
-                        }
-
-                        @Override
-                        public BackendKey next() {
-                            if (line == null) {
-                                throw new IllegalStateException("No line ready");
-                            }
-
-                            try {
-                                return mapper.readValue(line.trim(), BackendKeyArgument.class).toBackendKey();
-                            } catch (IOException e) {
-                                throw new RuntimeException("Failed to read next line", e);
-                            } finally {
-                                line = null;
-                            }
-                        }
-                    };
-                }
-            });
+            keys.addAll(loadKeysFromFile(io, params.file));
         }
 
         final ImmutableList.Builder<BackendKey> arguments = ImmutableList.builder();
@@ -143,56 +102,45 @@ public class DeleteKeys implements ShellTask {
         keys.add(arguments.build());
 
         if (!params.ok) {
-            io.out().println("Would have deleted the following keys (use --ok to perform):");
-
-            int index = 0;
-
-            for (final BackendKey k : Iterables.concat(keys.build())) {
-                io.out().println(k.toString());
-
-                if (index++ > 100) {
-                    io.out().println("... more than 100");
-                    break;
-                }
-            }
-
-            return async.resolved();
+            return askForOk(io, keys);
         }
 
         final Iterator<BackendKey> iterator = Iterables.concat(keys.build()).iterator();
 
-        final StreamCollector<Pair<BackendKey, Long>, Void> collector = new StreamCollector<Pair<BackendKey, Long>, Void>() {
-            @Override
-            public void resolved(Pair<BackendKey, Long> result) throws Exception {
-                if (params.verbose) {
-                    synchronized (io) {
-                        io.out().println("Deleted: " + result.getLeft() + " (" + result.getRight() + ")");
-                        io.out().flush();
+        final StreamCollector<Pair<BackendKey, Long>, Void> collector =
+                new StreamCollector<Pair<BackendKey, Long>, Void>() {
+                    @Override
+                    public void resolved(Pair<BackendKey, Long> result) throws Exception {
+                        if (params.verbose) {
+                            synchronized (io) {
+                                io.out().println("Deleted: " + result.getLeft() + " ("
+                                        + result.getRight() + ")");
+                                io.out().flush();
+                            }
+                        }
                     }
-                }
-            }
 
-            @Override
-            public void failed(Throwable cause) throws Exception {
-                synchronized (io) {
-                    io.out().println("Delete Failed: " + cause);
-                    cause.printStackTrace(io.out());
-                    io.out().flush();
-                }
-            }
+                    @Override
+                    public void failed(Throwable cause) throws Exception {
+                        synchronized (io) {
+                            io.out().println("Delete Failed: " + cause);
+                            cause.printStackTrace(io.out());
+                            io.out().flush();
+                        }
+                    }
 
-            @Override
-            public void cancelled() throws Exception {
-            }
+                    @Override
+                    public void cancelled() throws Exception {
+                    }
 
-            @Override
-            public Void end(int resolved, int failed, int cancelled) throws Exception {
-                io.out().println(
-                        "Finished (resolved: " + resolved + ", failed: " + failed + ", cancelled: " + cancelled + ")");
-                io.out().flush();
-                return null;
-            }
-        };
+                    @Override
+                    public Void end(int resolved, int failed, int cancelled) throws Exception {
+                        io.out().println("Finished (resolved: " + resolved + ", failed: " + failed
+                                + ", cancelled: " + cancelled + ")");
+                        io.out().flush();
+                        return null;
+                    }
+                };
 
         final AtomicInteger outstanding = new AtomicInteger(params.parallelism);
 
@@ -241,18 +189,92 @@ public class DeleteKeys implements ShellTask {
         return future;
     }
 
-    private AsyncFuture<Pair<BackendKey, Long>> deleteKey(final MetricBackendGroup group, final BackendKey k,
-            final QueryOptions options) {
-        return group.countKey(k, options)
-                .lazyTransform(count -> group.deleteKey(k, options).directTransform(v -> Pair.of(k, count)));
+    private List<Iterable<BackendKey>> loadKeysFromFile(final ShellIO io, final Path file) {
+        final ImmutableList.Builder<Iterable<BackendKey>> keys = ImmutableList.builder();
+
+        keys.add(new Iterable<BackendKey>() {
+            @Override
+            public Iterator<BackendKey> iterator() {
+                final BufferedReader reader;
+
+                try {
+                    reader = new BufferedReader(
+                            new InputStreamReader(io.newInputStream(file), UTF8));
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to open file", e);
+                }
+
+                return new Iterator<BackendKey>() {
+                    private String line;
+
+                    @Override
+                    public boolean hasNext() {
+                        if (line != null) {
+                            return true;
+                        }
+
+                        try {
+                            line = reader.readLine();
+                        } catch (IOException e) {
+                            throw new RuntimeException("Failed to read line", e);
+                        }
+
+                        return line != null;
+                    }
+
+                    @Override
+                    public BackendKey next() {
+                        if (line == null) {
+                            throw new IllegalStateException("No line ready");
+                        }
+
+                        try {
+                            return mapper.readValue(line.trim(), BackendKeyArgument.class)
+                                    .toBackendKey();
+                        } catch (IOException e) {
+                            throw new RuntimeException("Failed to read next line", e);
+                        } finally {
+                            line = null;
+                        }
+                    }
+                };
+            }
+        });
+
+        return keys.build();
+    }
+
+    private AsyncFuture<Void> askForOk(final ShellIO io,
+            final ImmutableList.Builder<Iterable<BackendKey>> keys) {
+        io.out().println("Would have deleted the following keys (use --ok to perform):");
+
+        int index = 0;
+
+        for (final BackendKey k : Iterables.concat(keys.build())) {
+            io.out().println(k.toString());
+
+            if (index++ > 100) {
+                io.out().println("... more than 100");
+                break;
+            }
+        }
+
+        return async.resolved();
+    }
+
+    private AsyncFuture<Pair<BackendKey, Long>> deleteKey(final MetricBackendGroup group,
+            final BackendKey k, final QueryOptions options) {
+        return group.countKey(k, options).lazyTransform(
+                count -> group.deleteKey(k, options).directTransform(v -> Pair.of(k, count)));
     }
 
     @ToString
     private static class Parameters extends AbstractShellTaskParams {
-        @Option(name = "-f", aliases = { "--file" }, usage = "File to read keys from", metaVar = "<file>")
+        @Option(name = "-f", aliases = {"--file"}, usage = "File to read keys from",
+                metaVar = "<file>")
         private Path file;
 
-        @Option(name = "-k", aliases = { "--key" }, usage = "Key to delete", metaVar = "<json>")
+        @Option(name = "-k", aliases = {"--key"}, usage = "Key to delete", metaVar = "<json>")
         private List<String> keys = new ArrayList<>();
 
         @Option(name = "--ok", usage = "Really delete keys", metaVar = "<file>")
@@ -261,13 +283,15 @@ public class DeleteKeys implements ShellTask {
         @Option(name = "--verbose", usage = "Print information about every deleted key")
         private boolean verbose = false;
 
-        @Option(name = "-g", aliases = { "--group" }, usage = "Backend group to use", metaVar = "<group>")
+        @Option(name = "-g", aliases = {"--group"}, usage = "Backend group to use",
+                metaVar = "<group>")
         private String group = null;
 
         @Option(name = "--tracing", usage = "Enable extensive tracing")
         private boolean tracing = false;
 
-        @Option(name = "--parallelism", usage = "Configure how many deletes to perform in parallel", metaVar = "<number>")
+        @Option(name = "--parallelism", usage = "Configure how many deletes to perform in parallel",
+                metaVar = "<number>")
         private int parallelism = 20;
     }
 }

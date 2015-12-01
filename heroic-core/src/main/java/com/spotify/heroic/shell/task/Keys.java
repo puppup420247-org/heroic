@@ -21,24 +21,31 @@
 
 package com.spotify.heroic.shell.task;
 
+import java.util.List;
+
 import org.kohsuke.args4j.Option;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import com.google.inject.name.Named;
+import com.spotify.heroic.QueryOptions;
+import com.spotify.heroic.async.AsyncObservable;
+import com.spotify.heroic.async.AsyncObserver;
 import com.spotify.heroic.metric.BackendKey;
+import com.spotify.heroic.metric.BackendKeyFilter;
 import com.spotify.heroic.metric.MetricBackendGroup;
-import com.spotify.heroic.metric.MetricBackends;
 import com.spotify.heroic.metric.MetricManager;
-import com.spotify.heroic.metric.QueryOptions;
-import com.spotify.heroic.shell.AbstractShellTaskParams;
 import com.spotify.heroic.shell.ShellIO;
 import com.spotify.heroic.shell.ShellTask;
 import com.spotify.heroic.shell.TaskName;
 import com.spotify.heroic.shell.TaskParameters;
 import com.spotify.heroic.shell.TaskUsage;
+import com.spotify.heroic.shell.Tasks;
 
+import eu.toolchain.async.AsyncFramework;
 import eu.toolchain.async.AsyncFuture;
+import eu.toolchain.async.ResolvableFuture;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
 
@@ -46,6 +53,9 @@ import lombok.extern.slf4j.Slf4j;
 @TaskName("keys")
 @Slf4j
 public class Keys implements ShellTask {
+    @Inject
+    private AsyncFramework async;
+
     @Inject
     private MetricManager metrics;
 
@@ -62,56 +72,81 @@ public class Keys implements ShellTask {
     public AsyncFuture<Void> run(final ShellIO io, TaskParameters base) throws Exception {
         final Parameters params = (Parameters) base;
 
-        final BackendKey start;
+        final BackendKeyFilter keyFilter = Tasks.setupKeyFilter(params, mapper);
 
-        if (params.start != null) {
-            start = mapper.readValue(params.start, BackendKeyArgument.class).toBackendKey();
-        } else {
-            start = null;
+        final QueryOptions.Builder options = QueryOptions.builder().tracing(params.tracing);
+
+        if (params.fetchSize != null) {
+            options.fetchSize(params.fetchSize);
         }
-
-        final int limit = Math.max(1, Math.min(1000, params.limit));
-
-        final QueryOptions options = QueryOptions.builder().tracing(params.tracing).build();
 
         final MetricBackendGroup group = metrics.useGroup(params.group);
 
-        return MetricBackends.keysPager(start, limit, (s, l) -> group.keys(s, l, options), (set) -> {
-            if (set.getTrace().isPresent()) {
-                set.getTrace().get().formatTrace(io.out());
-                io.out().flush();
-            }
-        }).directTransform(result -> {
-            while (result.hasNext()) {
-                final BackendKey next;
+        final ResolvableFuture<Void> future = async.future();
 
-                try {
-                    next = result.next();
-                } catch (Exception e) {
-                    log.warn("Exception when pulling key", e);
-                    continue;
+        final AsyncObservable<List<BackendKey>> observable;
+
+        if (params.keysPaged) {
+            observable = group.streamKeysPaged(keyFilter, options.build(), params.keysPageSize);
+        } else {
+            observable = group.streamKeys(keyFilter, options.build());
+        }
+
+        observable.observe(new AsyncObserver<List<BackendKey>>() {
+            @Override
+            public AsyncFuture<Void> observe(List<BackendKey> keys) throws Exception {
+                for (final BackendKey key : keys) {
+                    io.out().println(mapper.writeValueAsString(key));
                 }
 
-                io.out().println(mapper.writeValueAsString(next));
                 io.out().flush();
+                return async.resolved();
             }
 
-            return null;
+            @Override
+            public void cancel() throws Exception {
+                log.error("Cancelled");
+                end();
+            }
+
+            @Override
+            public void fail(final Throwable cause) throws Exception {
+                log.warn("Exception when pulling keys", cause);
+                end();
+            }
+
+            @Override
+            public void end() throws Exception {
+                future.resolve(null);
+            }
         });
+
+        return future;
     }
 
     @ToString
-    private static class Parameters extends AbstractShellTaskParams {
-        @Option(name = "--start", usage = "First key to list (overrides start value from --series)", metaVar = "<json>")
-        private String start;
-
-        @Option(name = "--limit", usage = "Maximum number of keys to fetch per batch", metaVar = "<int>")
-        private int limit = 10000;
-
-        @Option(name = "--group", usage = "Backend group to use", metaVar = "<group>")
+    private static class Parameters extends Tasks.KeyspaceBase {
+        @Option(name = "-g", aliases = {"--group"}, usage = "Backend group to use",
+                metaVar = "<group>")
         private String group = null;
 
-        @Option(name = "--tracing", usage = "Trace the queries for more debugging when things go wrong")
+        @Option(name = "--tracing",
+                usage = "Trace the queries for more debugging when things go wrong")
         private boolean tracing = false;
+
+        @Option(name = "--keys-paged",
+                usage = "Use the high-level paging mechanism when streaming keys")
+        private boolean keysPaged = false;
+
+        @Option(name = "--keys-page-size", usage = "Use the given page-size when paging keys")
+        private int keysPageSize = 10;
+
+        @Option(name = "--fetch-size", usage = "Use the given fetch size")
+        private Integer fetchSize = null;
+
+        @Override
+        public List<String> getQuery() {
+            return ImmutableList.of();
+        }
     }
 }

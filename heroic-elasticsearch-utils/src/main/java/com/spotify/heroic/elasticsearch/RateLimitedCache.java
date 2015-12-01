@@ -1,18 +1,37 @@
+/*
+ * Copyright (c) 2015 Spotify AB.
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.spotify.heroic.elasticsearch;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
-import com.google.common.cache.Cache;
-
 public interface RateLimitedCache<K, V> {
     /**
-     * Try to get a previously cached value, or load a new value from {@code callable} if the configured rate limited
-     * permits it.
+     * Try to get a previously cached value, or load a new value from {@code callable} if the
+     * configured rate limited permits it.
      *
-     * @throws RateLimitExceededException
-     *             If the configured rate is at capacity.
+     * @throws RateLimitExceededException If the configured rate is at capacity.
      * @see Cache#get(Object, Callable)
      */
-    public V get(K key, final Callable<V> callable) throws ExecutionException, RateLimitExceededException;
+    public V get(K key, final Callable<V> callable)
+            throws ExecutionException, RateLimitExceededException;
 }

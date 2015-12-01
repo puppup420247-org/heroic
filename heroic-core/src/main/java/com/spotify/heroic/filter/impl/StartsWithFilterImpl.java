@@ -23,6 +23,7 @@ package com.spotify.heroic.filter.impl;
 
 import com.spotify.heroic.common.Series;
 import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.grammar.QueryParser;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -68,15 +69,22 @@ public class StartsWithFilterImpl implements Filter.StartsWith {
 
     @Override
     public int compareTo(Filter o) {
-        if (!Filter.StartsWith.class.isAssignableFrom(o.getClass()))
+        if (!Filter.StartsWith.class.isAssignableFrom(o.getClass())) {
             return operator().compareTo(o.operator());
+        }
 
         final Filter.StartsWith other = (Filter.StartsWith) o;
         final int first = FilterComparatorUtils.stringCompare(first(), other.first());
 
-        if (first != 0)
+        if (first != 0) {
             return first;
+        }
 
         return FilterComparatorUtils.stringCompare(second(), other.second());
+    }
+
+    @Override
+    public String toDSL() {
+        return QueryParser.escapeString(tag) + " ^ " + QueryParser.escapeString(value);
     }
 }

@@ -37,8 +37,6 @@ import com.spotify.heroic.cluster.discovery.simple.StaticListDiscoveryModule;
 import com.spotify.heroic.rpc.nativerpc.NativeRpcProtocolModule;
 
 public class ClusterProfile extends HeroicProfileBase {
-    public static final String DEFAULT_CREDENTIALS = "json";
-
     @Override
     public HeroicConfig.Builder build(final ExtraParameters params) throws Exception {
         final ClusterManagerModule.Builder module = ClusterManagerModule.builder();
@@ -47,17 +45,23 @@ public class ClusterProfile extends HeroicProfileBase {
 
         switch (params.get("cluster.discovery").orElse("static")) {
         case "static":
-            final List<URI> nodes = ImmutableList.copyOf(params.getAsList("cluster.host").stream().map(this::buildUri).iterator());
+            final List<URI> nodes = ImmutableList.copyOf(
+                    params.getAsList("cluster.host").stream().map(this::buildUri).iterator());
             module.discovery(new StaticListDiscoveryModule(nodes));
             break;
         case "srv":
             final List<String> records = params.getAsList("cluster.record");
-            final SrvRecordDiscoveryModule.Builder sd = SrvRecordDiscoveryModule.builder().records(records);
+            final SrvRecordDiscoveryModule.Builder sd =
+                    SrvRecordDiscoveryModule.builder().records(records);
             params.get("protocol").ifPresent(sd::protocol);
             params.getInteger("port").ifPresent(sd::port);
             module.discovery(sd.build());
             break;
+        default:
+            throw new IllegalArgumentException("illegal value for cluster.discovery");
         }
+
+        params.getBoolean("cluster.useLocal").ifPresent(module::useLocal);
 
         // @formatter:off
         return HeroicConfig.builder().cluster(module);
