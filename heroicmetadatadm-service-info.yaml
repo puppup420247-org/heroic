@@ -1,0 +1,16 @@
+id: heroicmetadatadm
+description: Elasticsearch cluster for metadata indices in Heroic
+system: heroic
+owner: hero
+visibility: private
+
+dependencies: []
+
+facts:
+  role: heroicmetadata
+  tags:
+    - heroic
+    - metadata
+    - elasticsearch
+
+  slack_channel: monitoring-users
