@@ -1,6 +1,4 @@
 id: heroicsuggestdm
-
-id: heroicsuggest
 description: |
   Dedicated elasticsearch master for tag suggestions in Heroic
 system: heroic
