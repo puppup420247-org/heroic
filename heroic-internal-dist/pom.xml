@@ -19,6 +19,10 @@
     distribution as a shaded jar.
   </description>
 
+  <properties>
+    <semantic-metrics.version>0.4.2</semantic-metrics.version>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>org.projectlombok</groupId>
@@ -34,11 +38,13 @@
     <dependency>
       <groupId>com.spotify.metrics</groupId>
       <artifactId>semantic-metrics-core</artifactId>
+      <version>${semantic-metrics.version}</version>
     </dependency>
 
     <dependency>
       <groupId>com.spotify.metrics</groupId>
       <artifactId>semantic-metrics-ffwd-reporter</artifactId>
+      <version>${semantic-metrics.version}</version>
     </dependency>
   </dependencies>
 
