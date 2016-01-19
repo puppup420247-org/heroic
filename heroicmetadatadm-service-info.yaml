@@ -7,7 +7,7 @@ visibility: private
 dependencies: []
 
 facts:
-  role: heroicmetadata
+  role: heroicmetadatadm
   tags:
     - heroic
     - metadata
