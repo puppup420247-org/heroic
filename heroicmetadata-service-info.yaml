@@ -7,11 +7,14 @@ visibility: private
 dependencies: []
 
 facts:
-  role: heroicmetadata
+  role:
+    - heroicmetadata
+    - heroicmetadatadm
+
   tags:
     - heroic
     - metadata
     - elasticsearch
-  
+
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
   slack_channel: monitoring-users

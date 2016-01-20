@@ -10,13 +10,14 @@ visibility: private
 dependencies: []
 
 facts:
-  # list of doc links
-  docs:
-
-  tags: 
+  tags:
     - monitoring
     - heroic
     - alien
+
+  role:
+    - heroicsuggest
+    - heroicsuggestdm
+
   pagerdutykey: ddaa9f548f744f21b4ea7324004b496a
-  role: heroicsuggest
   slack_channel: monitoring-users
