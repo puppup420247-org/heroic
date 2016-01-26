@@ -149,7 +149,7 @@ public class CoreQueryManager implements QueryManager {
 
             final QueryOptions options = q.getOptions().orElseGet(QueryOptions::defaults);
 
-            final Aggregation aggregation = q.getAggregation().orElse(Empty.INSTANCE);
+            final Aggregation aggregation = q.aggregation().orElse(Empty.INSTANCE);
             final DateRange rawRange = buildRange(q);
             final Duration cadence = buildCadence(aggregation, rawRange);
             final DateRange range = rawRange.rounded(cadence.toMilliseconds());
