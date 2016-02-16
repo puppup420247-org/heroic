@@ -21,9 +21,6 @@
 
 package com.spotify.heroic.http.query;
 
-import java.io.IOException;
-import java.util.List;
-
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonSerializer;
@@ -35,12 +32,16 @@ import com.spotify.heroic.common.Statistics;
 import com.spotify.heroic.metric.MetricCollection;
 import com.spotify.heroic.metric.QueryTrace;
 import com.spotify.heroic.metric.RequestError;
+import com.spotify.heroic.metric.SeriesValues;
 import com.spotify.heroic.metric.ShardLatency;
 import com.spotify.heroic.metric.ShardedResultGroup;
-import com.spotify.heroic.metric.TagValues;
-
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.SortedSet;
 
 @RequiredArgsConstructor
 public class QueryMetricsResponse {
@@ -70,24 +71,27 @@ public class QueryMetricsResponse {
 
     public static class ResultSerializer extends JsonSerializer<List<ShardedResultGroup>> {
         @Override
-        public void serialize(List<ShardedResultGroup> result, JsonGenerator g,
-                SerializerProvider provider) throws IOException, JsonProcessingException {
+        public void serialize(
+            List<ShardedResultGroup> result, JsonGenerator g, SerializerProvider provider
+        ) throws IOException, JsonProcessingException {
             g.writeStartArray();
 
             for (final ShardedResultGroup group : result) {
                 g.writeStartObject();
 
                 final MetricCollection collection = group.getGroup();
-                final List<TagValues> tags = group.getTags();
+                final SeriesValues series = group.getSeries();
 
                 g.writeStringField("type", collection.getType().identifier());
                 g.writeStringField("hash", Integer.toHexString(group.hashCode()));
                 g.writeObjectField("shard", group.getShard());
                 g.writeNumberField("cadence", group.getCadence());
                 g.writeObjectField("values", collection.getData());
+                g.writeNumberField("keyCount", group.getSeries().getKeys().size());
 
-                writeTags(g, tags);
-                writeTagCounts(g, tags);
+                writeKey(g, series.getKeys());
+                writeTags(g, series.getTags());
+                writeTagCounts(g, series.getTags());
 
                 g.writeEndObject();
             }
@@ -95,13 +99,24 @@ public class QueryMetricsResponse {
             g.writeEndArray();
         }
 
-        void writeTags(JsonGenerator g, final List<TagValues> tags) throws IOException {
+        void writeKey(JsonGenerator g, final SortedSet<String> keys) throws IOException {
+            g.writeFieldName("key");
+
+            if (keys.size() == 1) {
+                g.writeString(keys.iterator().next());
+            } else {
+                g.writeNull();
+            }
+        }
+
+        void writeTags(JsonGenerator g, final Map<String, SortedSet<String>> tags)
+            throws IOException {
             g.writeFieldName("tags");
 
             g.writeStartObject();
 
-            for (final TagValues pair : tags) {
-                final List<String> values = pair.getValues();
+            for (final Map.Entry<String, SortedSet<String>> pair : tags.entrySet()) {
+                final SortedSet<String> values = pair.getValue();
 
                 if (values.size() != 1) {
                     continue;
@@ -113,13 +128,14 @@ public class QueryMetricsResponse {
             g.writeEndObject();
         }
 
-        void writeTagCounts(JsonGenerator g, final List<TagValues> tags) throws IOException {
+        void writeTagCounts(JsonGenerator g, final Map<String, SortedSet<String>> tags)
+            throws IOException {
             g.writeFieldName("tagCounts");
 
             g.writeStartObject();
 
-            for (final TagValues pair : tags) {
-                final List<String> values = pair.getValues();
+            for (final Map.Entry<String, SortedSet<String>> pair : tags.entrySet()) {
+                final SortedSet<String> values = pair.getValue();
 
                 if (values.size() <= 1) {
                     continue;

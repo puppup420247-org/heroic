@@ -29,17 +29,12 @@ import com.spotify.heroic.elasticsearch.index.NoIndexSelectedException;
 import com.spotify.heroic.filter.Filter;
 import com.spotify.heroic.metadata.FindSeries;
 import com.spotify.heroic.metadata.MetadataBackend;
-
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
-
-import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.ListenableActionFuture;
+import eu.toolchain.async.AsyncFramework;
+import eu.toolchain.async.AsyncFuture;
+import eu.toolchain.async.Borrowed;
+import eu.toolchain.async.FutureDone;
+import eu.toolchain.async.Managed;
+import eu.toolchain.async.ResolvableFuture;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.SearchType;
@@ -49,20 +44,24 @@ import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 
-import eu.toolchain.async.AsyncFramework;
-import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Borrowed;
-import eu.toolchain.async.FutureDone;
-import eu.toolchain.async.Managed;
-import eu.toolchain.async.ResolvableFuture;
-import lombok.RequiredArgsConstructor;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
-@RequiredArgsConstructor
-public abstract class AbstractElasticsearchMetadataBackend implements MetadataBackend {
+public abstract class AbstractElasticsearchMetadataBackend extends AbstractElasticsearchBackend
+    implements MetadataBackend {
     public static final TimeValue SCROLL_TIME = TimeValue.timeValueSeconds(5);
 
-    private final AsyncFramework async;
     private final String type;
+
+    public AbstractElasticsearchMetadataBackend(final AsyncFramework async, final String type) {
+        super(async);
+        this.type = type;
+    }
 
     protected abstract Managed<Connection> connection();
 
@@ -70,34 +69,18 @@ public abstract class AbstractElasticsearchMetadataBackend implements MetadataBa
 
     protected abstract Series toSeries(SearchHit hit);
 
-    protected <T> AsyncFuture<T> bind(final ListenableActionFuture<T> actionFuture) {
-        final ResolvableFuture<T> future = async.future();
-
-        actionFuture.addListener(new ActionListener<T>() {
-            @Override
-            public void onResponse(T result) {
-                future.resolve(result);
-            }
-
-            @Override
-            public void onFailure(Throwable e) {
-                future.fail(e);
-            }
-        });
-
-        return future;
-    }
-
-    protected AsyncFuture<FindSeries> scrollOverSeries(final Connection c,
-            final SearchRequestBuilder request, final long limit) {
+    protected AsyncFuture<FindSeries> scrollOverSeries(
+        final Connection c, final SearchRequestBuilder request, final long limit
+    ) {
         return bind(request.execute()).lazyTransform((initial) -> {
             if (initial.getScrollId() == null) {
                 return async.resolved(FindSeries.EMPTY);
             }
 
-            return bind(
-                    c.prepareSearchScroll(initial.getScrollId()).setScroll(SCROLL_TIME).execute())
-                            .lazyTransform((response) -> {
+            return bind(c
+                .prepareSearchScroll(initial.getScrollId())
+                .setScroll(SCROLL_TIME)
+                .execute()).lazyTransform((response) -> {
                 final ResolvableFuture<FindSeries> future = async.future();
                 final Set<Series> series = new HashSet<>();
                 final AtomicInteger count = new AtomicInteger();
@@ -113,14 +96,16 @@ public abstract class AbstractElasticsearchMetadataBackend implements MetadataBa
 
                         count.addAndGet(hits.length);
 
-                        if (hits.length == 0 || count.get() >= limit
-                                || response.getScrollId() == null) {
+                        if (hits.length == 0 || count.get() >= limit ||
+                            response.getScrollId() == null) {
                             future.resolve(new FindSeries(series, series.size(), 0));
                             return;
                         }
 
-                        bind(c.prepareSearchScroll(response.getScrollId()).setScroll(SCROLL_TIME)
-                                .execute()).onDone(new FutureDone<SearchResponse>() {
+                        bind(c
+                            .prepareSearchScroll(response.getScrollId())
+                            .setScroll(SCROLL_TIME)
+                            .execute()).onDone(new FutureDone<SearchResponse>() {
                             @Override
                             public void failed(Throwable cause) throws Exception {
                                 future.fail(cause);
@@ -167,13 +152,18 @@ public abstract class AbstractElasticsearchMetadataBackend implements MetadataBa
             final SearchRequestBuilder request;
 
             try {
-                request = c.get().search(filter.getRange(), type).setSize(ENTRIES_SCAN_SIZE)
-                        .setScroll(ENTRIES_TIMEOUT).setSearchType(SearchType.SCAN).setQuery(query);
+                request = c
+                    .get()
+                    .search(filter.getRange(), type)
+                    .setSize(ENTRIES_SCAN_SIZE)
+                    .setScroll(ENTRIES_TIMEOUT)
+                    .setSearchType(SearchType.SCAN)
+                    .setQuery(query);
             } catch (NoIndexSelectedException e) {
                 throw new IllegalArgumentException("no valid index selected", e);
             }
 
-            final AsyncObserver<List<Series>> o = AsyncObserver.onFinished(observer, c::release);
+            final AsyncObserver<List<Series>> o = observer.onFinished(c::release);
 
             bind(request.execute()).onDone(new FutureDone<SearchResponse>() {
                 @Override
@@ -204,30 +194,35 @@ public abstract class AbstractElasticsearchMetadataBackend implements MetadataBa
                     }
 
                     bind(c.get().prepareSearchScroll(scrollId).setScroll(ENTRIES_TIMEOUT).execute())
-                            .onResolved(result -> {
-                        final SearchHit[] hits = result.getHits().hits();
+                        .onResolved(result -> {
+                            final SearchHit[] hits = result.getHits().hits();
 
                         /* no more results */
-                        if (hits.length == 0) {
-                            o.end();
-                            return;
-                        }
-
-                        final List<Series> entries = new ArrayList<>();
-
-                        for (final SearchHit hit : hits) {
-                            final long i = index.getAndIncrement();
-
-                            if (i >= limit) {
-                                break;
+                            if (hits.length == 0) {
+                                o.end();
+                                return;
                             }
 
-                            entries.add(toSeries(hit));
-                        }
+                            final List<Series> entries = new ArrayList<>();
 
-                        o.observe(entries).onResolved(v -> handleNext(scrollId)).onFailed(o::fail)
+                            for (final SearchHit hit : hits) {
+                                final long i = index.getAndIncrement();
+
+                                if (i >= limit) {
+                                    break;
+                                }
+
+                                entries.add(toSeries(hit));
+                            }
+
+                            o
+                                .observe(entries)
+                                .onResolved(v -> handleNext(scrollId))
+                                .onFailed(o::fail)
                                 .onCancelled(o::cancel);
-                    }).onFailed(o::fail).onCancelled(o::cancel);
+                        })
+                        .onFailed(o::fail)
+                        .onCancelled(o::cancel);
                 }
             });
         };

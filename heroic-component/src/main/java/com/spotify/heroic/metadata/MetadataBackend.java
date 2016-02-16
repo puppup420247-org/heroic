@@ -27,11 +27,11 @@ import com.spotify.heroic.common.Grouped;
 import com.spotify.heroic.common.Initializing;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.common.Series;
+import com.spotify.heroic.common.Statistics;
 import com.spotify.heroic.metric.WriteResult;
+import eu.toolchain.async.AsyncFuture;
 
 import java.util.List;
-
-import eu.toolchain.async.AsyncFuture;
 
 public interface MetadataBackend extends Grouped, Initializing {
     AsyncFuture<Void> configure();
@@ -49,7 +49,7 @@ public interface MetadataBackend extends Grouped, Initializing {
 
     /**
      * Iterate <em>all</em> available metadata.
-     *
+     * <p>
      * This should perform pagination internally to avoid using too much memory.
      */
     default AsyncObservable<List<Series>> entries(RangeFilter filter) {
@@ -65,4 +65,8 @@ public interface MetadataBackend extends Grouped, Initializing {
     AsyncFuture<DeleteSeries> deleteSeries(RangeFilter filter);
 
     AsyncFuture<FindKeys> findKeys(RangeFilter filter);
+
+    default Statistics getStatistics() {
+        return Statistics.empty();
+    }
 }

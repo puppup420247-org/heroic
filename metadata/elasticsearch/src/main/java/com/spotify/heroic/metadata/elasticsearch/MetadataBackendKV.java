@@ -21,28 +21,22 @@
 
 package com.spotify.heroic.metadata.elasticsearch;
 
-import static org.elasticsearch.index.query.FilterBuilders.andFilter;
-import static org.elasticsearch.index.query.FilterBuilders.matchAllFilter;
-import static org.elasticsearch.index.query.FilterBuilders.notFilter;
-import static org.elasticsearch.index.query.FilterBuilders.orFilter;
-import static org.elasticsearch.index.query.FilterBuilders.prefixFilter;
-import static org.elasticsearch.index.query.FilterBuilders.termFilter;
-
 import com.google.common.collect.ImmutableMap;
-import com.google.inject.name.Named;
+import com.google.common.hash.HashCode;
 import com.spotify.heroic.common.DateRange;
 import com.spotify.heroic.common.Groups;
-import com.spotify.heroic.common.LifeCycle;
 import com.spotify.heroic.common.RangeFilter;
 import com.spotify.heroic.common.Series;
+import com.spotify.heroic.common.Statistics;
 import com.spotify.heroic.elasticsearch.AbstractElasticsearchMetadataBackend;
 import com.spotify.heroic.elasticsearch.BackendType;
 import com.spotify.heroic.elasticsearch.BackendTypeFactory;
 import com.spotify.heroic.elasticsearch.Connection;
-import com.spotify.heroic.elasticsearch.RateLimitExceededException;
 import com.spotify.heroic.elasticsearch.RateLimitedCache;
 import com.spotify.heroic.elasticsearch.index.NoIndexSelectedException;
 import com.spotify.heroic.filter.Filter;
+import com.spotify.heroic.lifecycle.LifeCycleRegistry;
+import com.spotify.heroic.lifecycle.LifeCycles;
 import com.spotify.heroic.metadata.CountSeries;
 import com.spotify.heroic.metadata.DeleteSeries;
 import com.spotify.heroic.metadata.FindKeys;
@@ -51,20 +45,11 @@ import com.spotify.heroic.metadata.FindTags;
 import com.spotify.heroic.metadata.MetadataBackend;
 import com.spotify.heroic.metric.WriteResult;
 import com.spotify.heroic.statistics.LocalMetadataBackendReporter;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-
-import javax.inject.Inject;
-
+import eu.toolchain.async.AsyncFramework;
+import eu.toolchain.async.AsyncFuture;
+import eu.toolchain.async.Managed;
+import eu.toolchain.async.ManagedAction;
+import lombok.ToString;
 import org.apache.commons.lang3.tuple.Pair;
 import org.elasticsearch.action.count.CountRequestBuilder;
 import org.elasticsearch.action.deletebyquery.DeleteByQueryRequestBuilder;
@@ -82,15 +67,30 @@ import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 
-import eu.toolchain.async.AsyncFramework;
-import eu.toolchain.async.AsyncFuture;
-import eu.toolchain.async.Managed;
-import eu.toolchain.async.ManagedAction;
-import lombok.ToString;
+import javax.inject.Inject;
+import javax.inject.Named;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import static org.elasticsearch.index.query.FilterBuilders.andFilter;
+import static org.elasticsearch.index.query.FilterBuilders.matchAllFilter;
+import static org.elasticsearch.index.query.FilterBuilders.notFilter;
+import static org.elasticsearch.index.query.FilterBuilders.orFilter;
+import static org.elasticsearch.index.query.FilterBuilders.prefixFilter;
+import static org.elasticsearch.index.query.FilterBuilders.termFilter;
+
+@ElasticsearchScope
 @ToString(of = {"connection"})
 public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
-        implements MetadataBackend, LifeCycle {
+    implements MetadataBackend, LifeCycles {
+    public static final String WRITE_CACHE_SIZE = "write-cache-size";
+
     static final String KEY = "key";
     static final String TAGS = "tags";
     static final String TAG_KEYS = "tag_keys";
@@ -107,14 +107,15 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
     private final LocalMetadataBackendReporter reporter;
     private final AsyncFramework async;
     private final Managed<Connection> connection;
-    private final RateLimitedCache<Pair<String, Series>, AsyncFuture<WriteResult>> writeCache;
+    private final RateLimitedCache<Pair<String, HashCode>> writeCache;
     private final boolean configure;
 
     @Inject
-    public MetadataBackendKV(Groups groups, LocalMetadataBackendReporter reporter,
-            AsyncFramework async, Managed<Connection> connection,
-            RateLimitedCache<Pair<String, Series>, AsyncFuture<WriteResult>> writeCache,
-            @Named("configure") boolean configure) {
+    public MetadataBackendKV(
+        Groups groups, LocalMetadataBackendReporter reporter, AsyncFramework async,
+        Managed<Connection> connection, RateLimitedCache<Pair<String, HashCode>> writeCache,
+        @Named("configure") boolean configure
+    ) {
         super(async, TYPE_METADATA);
         this.groups = groups;
         this.reporter = reporter;
@@ -122,6 +123,12 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
         this.connection = connection;
         this.writeCache = writeCache;
         this.configure = configure;
+    }
+
+    @Override
+    public void register(LifeCycleRegistry registry) {
+        registry.start(this::start);
+        registry.stop(this::stop);
     }
 
     @Override
@@ -137,22 +144,6 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
     @Override
     public Groups getGroups() {
         return groups;
-    }
-
-    @Override
-    public AsyncFuture<Void> start() {
-        AsyncFuture<Void> future = connection.start();
-
-        if (!configure) {
-            return future;
-        }
-
-        return future.lazyTransform(v -> configure());
-    }
-
-    @Override
-    public AsyncFuture<Void> stop() {
-        return connection.stop();
     }
 
     @Override
@@ -183,31 +174,28 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
                 final List<AsyncFuture<WriteResult>> writes = new ArrayList<>();
 
                 for (final String index : indices) {
-                    final Pair<String, Series> key = Pair.of(index, series);
-
-                    final Callable<AsyncFuture<WriteResult>> loader = () -> {
-                        final XContentBuilder source = XContentFactory.jsonBuilder();
-
-                        source.startObject();
-                        buildContext(source, series);
-                        source.endObject();
-
-                        final IndexRequestBuilder request = c.index(index, TYPE_METADATA).setId(id)
-                                .setSource(source).setOpType(OpType.CREATE);
-
-                        final long start = System.nanoTime();
-                        return bind(request.execute()).directTransform(
-                                response -> WriteResult.of(System.nanoTime() - start));
-                    };
-
-                    try {
-                        writes.add(writeCache.get(key, loader));
-                    } catch (ExecutionException e) {
-                        return async.failed(e);
-                    } catch (RateLimitExceededException e) {
+                    if (!writeCache.acquire(Pair.of(index, series.getHashCode()))) {
                         reporter.reportWriteDroppedByRateLimit();
                         continue;
                     }
+
+                    final XContentBuilder source = XContentFactory.jsonBuilder();
+
+                    source.startObject();
+                    buildContext(source, series);
+                    source.endObject();
+
+                    final IndexRequestBuilder request = c
+                        .index(index, TYPE_METADATA)
+                        .setId(id)
+                        .setSource(source)
+                        .setOpType(OpType.CREATE);
+
+                    final long start = System.nanoTime();
+                    AsyncFuture<WriteResult> result = bind(request.execute()).directTransform(
+                        response -> WriteResult.of(System.nanoTime() - start));
+
+                    writes.add(result);
                 }
 
                 return async.collect(writes, WriteResult.merger());
@@ -233,16 +221,17 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
                 final CountRequestBuilder request;
 
                 try {
-                    request = c.count(filter.getRange(), TYPE_METADATA)
-                            .setTerminateAfter(filter.getLimit());
+                    request = c
+                        .count(filter.getRange(), TYPE_METADATA)
+                        .setTerminateAfter(filter.getLimit());
                 } catch (NoIndexSelectedException e) {
                     return async.failed(e);
                 }
 
                 request.setQuery(QueryBuilders.filteredQuery(QueryBuilders.matchAllQuery(), f));
 
-                return bind(request.execute())
-                        .directTransform(response -> new CountSeries(response.getCount(), false));
+                return bind(request.execute()).directTransform(
+                    response -> new CountSeries(response.getCount(), false));
             }
         });
     }
@@ -265,17 +254,19 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
                 final SearchRequestBuilder request;
 
                 try {
-                    request = c.search(filter.getRange(), TYPE_METADATA)
-                            .setSize(Math.min(MAX_SIZE, filter.getLimit())).setScroll(SCROLL_TIME)
-                            .setSearchType(SearchType.SCAN);
+                    request = c
+                        .search(filter.getRange(), TYPE_METADATA)
+                        .setSize(Math.min(MAX_SIZE, filter.getLimit()))
+                        .setScroll(SCROLL_TIME)
+                        .setSearchType(SearchType.SCAN);
                 } catch (NoIndexSelectedException e) {
                     return async.failed(e);
                 }
 
                 request.setQuery(QueryBuilders.filteredQuery(QueryBuilders.matchAllQuery(), f));
 
-                return scrollOverSeries(c, request, filter.getLimit())
-                        .onDone(reporter.reportFindTimeSeries());
+                return scrollOverSeries(c, request, filter.getLimit()).onDone(
+                    reporter.reportFindTimeSeries());
             }
         });
     }
@@ -329,7 +320,7 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
 
                 {
                     final AggregationBuilder<?> terms =
-                            AggregationBuilders.terms("terms").field(KEY).size(0);
+                        AggregationBuilders.terms("terms").field(KEY).size(0);
                     request.addAggregation(terms);
                 }
 
@@ -363,17 +354,31 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
         return connection.isReady();
     }
 
-    private <T> AsyncFuture<T> doto(ManagedAction<Connection, T> action) {
-        return connection.doto(action);
-    }
-
     @Override
     protected Series toSeries(SearchHit hit) {
         final Map<String, Object> source = hit.getSource();
         final String key = (String) source.get(KEY);
         final Iterator<Map.Entry<String, String>> tags =
-                ((List<String>) source.get(TAGS)).stream().map(this::buildTag).iterator();
+            ((List<String>) source.get(TAGS)).stream().map(this::buildTag).iterator();
         return Series.of(key, tags);
+    }
+
+    private <T> AsyncFuture<T> doto(ManagedAction<Connection, T> action) {
+        return connection.doto(action);
+    }
+
+    private AsyncFuture<Void> start() {
+        AsyncFuture<Void> future = connection.start();
+
+        if (!configure) {
+            return future;
+        }
+
+        return future.lazyTransform(v -> configure());
+    }
+
+    private AsyncFuture<Void> stop() {
+        return connection.stop();
     }
 
     Map.Entry<String, String> buildTag(String kv) {
@@ -472,21 +477,26 @@ public class MetadataBackendKV extends AbstractElasticsearchMetadataBackend
         throw new IllegalArgumentException("Invalid filter statement: " + filter);
     }
 
+    @Override
+    public Statistics getStatistics() {
+        return Statistics.of(WRITE_CACHE_SIZE, writeCache.size());
+    }
+
     public static BackendTypeFactory<MetadataBackend> factory() {
         return new BackendTypeFactory<MetadataBackend>() {
             @Override
             public BackendType<MetadataBackend> setup() {
                 return new BackendType<MetadataBackend>() {
                     @Override
-                    public Map<String, Map<String, Object>> mappings() throws IOException {
+                    public Map<String, Map<String, Object>> mappings() {
                         final Map<String, Map<String, Object>> mappings = new HashMap<>();
                         mappings.put("metadata",
-                                ElasticsearchMetadataUtils.loadJsonResource("kv/metadata.json"));
+                            ElasticsearchMetadataUtils.loadJsonResource("kv/metadata.json"));
                         return mappings;
                     }
 
                     @Override
-                    public Map<String, Object> settings() throws IOException {
+                    public Map<String, Object> settings() {
                         return ImmutableMap.of();
                     }
 
