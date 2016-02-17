@@ -47,6 +47,7 @@ import com.spotify.heroic.statistics.ConsumerReporter;
 import dagger.Component;
 import lombok.Data;
 import lombok.ToString;
+import lombok.extern.slf4j.Slf4j;
 
 import javax.inject.Inject;
 import java.io.IOException;
@@ -54,6 +55,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @ToString
 public class Spotify100 implements ConsumerSchema {
     private static final String HOST = "host";
@@ -172,7 +174,11 @@ public class Spotify100 implements ConsumerSchema {
             reporter.reportMessageDrift(System.currentTimeMillis() - p.getTimestamp());
 
             try {
-                ingestion.write(new WriteMetric(series, MetricCollection.points(points)));
+                ingestion
+                    .write(new WriteMetric(series, MetricCollection.points(points)))
+                    .onFailed(e -> {
+                        log.error("Failed to write {}", series, e);
+                    });
             } catch (final Exception e) {
                 throw new FatalSchemaException("Write failed", e);
             }
