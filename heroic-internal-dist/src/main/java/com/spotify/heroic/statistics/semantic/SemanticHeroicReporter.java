@@ -1,13 +1,7 @@
 package com.spotify.heroic.statistics.semantic;
 
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-
-import lombok.RequiredArgsConstructor;
-import lombok.ToString;
-
 import com.spotify.heroic.statistics.AggregationCacheReporter;
+import com.spotify.heroic.statistics.AnalyticsReporter;
 import com.spotify.heroic.statistics.ClusteredManager;
 import com.spotify.heroic.statistics.ClusteredMetadataManagerReporter;
 import com.spotify.heroic.statistics.ClusteredMetricManagerReporter;
@@ -19,6 +13,12 @@ import com.spotify.heroic.statistics.LocalMetadataManagerReporter;
 import com.spotify.heroic.statistics.LocalMetricManagerReporter;
 import com.spotify.heroic.statistics.MetricBackendGroupReporter;
 import com.spotify.metrics.core.SemanticMetricRegistry;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 @ToString(of = {})
 @RequiredArgsConstructor
@@ -63,8 +63,14 @@ public class SemanticHeroicReporter implements HeroicReporter {
     }
 
     @Override
+    public AnalyticsReporter newAnalyticsReporter() {
+        return new SemanticAnalyticsReporter(registry);
+    }
+
+    @Override
     public ClusteredMetadataManagerReporter newClusteredMetadataBackendManager() {
-        final ClusteredMetadataManagerReporter reporter = new SemanticClusteredMetadataManagerReporter(registry);
+        final ClusteredMetadataManagerReporter reporter =
+            new SemanticClusteredMetadataManagerReporter(registry);
 
         synchronized (clusteredManagers) {
             clusteredManagers.add(reporter);
@@ -86,7 +92,8 @@ public class SemanticHeroicReporter implements HeroicReporter {
             clustered = new HashSet<>(clusteredManagers);
         }
 
-        for (final ClusteredManager c : clustered)
+        for (final ClusteredManager c : clustered) {
             c.registerShards(knownShards);
+        }
     }
 }
