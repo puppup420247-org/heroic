@@ -62,6 +62,7 @@
     <lombok.version>1.16.6</lombok.version>
     <findbugs.version>3.0.1</findbugs.version>
     <dagger.version>2.0.2</dagger.version>
+    <guava.version>19.0</guava.version>
   </properties>
 
   <dependencies>
@@ -284,7 +285,7 @@
       <dependency>
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
-        <version>18.0</version>
+        <version>${guava.version}</version>
       </dependency>
 
       <dependency>
