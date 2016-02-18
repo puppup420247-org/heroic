@@ -81,6 +81,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 @ToString(of = {"connection"})
@@ -106,7 +107,9 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
     private final boolean configure;
     private final MetricBackendReporter reporter;
 
+    private final AtomicLong pendingFetches = new AtomicLong();
     private final Meter written = new Meter();
+    private final Meter errors = new Meter();
 
     @Inject
     public BigtableBackend(
@@ -129,6 +132,7 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
     public void register(LifeCycleRegistry registry) {
         registry.start(this::start);
         registry.stop(this::stop);
+        registry.watch(this::watch);
     }
 
     @Override
@@ -289,7 +293,9 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
         return connection.doto(new ManagedAction<BigtableConnection, FetchData>() {
             @Override
             public AsyncFuture<FetchData> action(final BigtableConnection c) throws Exception {
-                return fetchPoints(series, prepared, c, options);
+                pendingFetches.incrementAndGet();
+                return fetchPoints(series, prepared, c, options).onFinished(
+                    pendingFetches::decrementAndGet);
             }
         });
     }
@@ -303,7 +309,14 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
     public Statistics getStatistics() {
         final long written = this.written.getCount();
         final double writeRate = this.written.getFiveMinuteRate();
-        return Statistics.of("written", written, "writeRate", (long) writeRate);
+        final double errorRate = this.errors.getFiveMinuteRate();
+        final long errorRatio = (long) (writeRate == 0D ? 0 : errorRate / writeRate) * 100;
+        return Statistics.of("written", written, "writeRate", (long) writeRate, "errorRate",
+            (long) errorRate, "errorRatio", errorRatio);
+    }
+
+    private boolean watch() {
+        return errors.getFiveMinuteRate() < 100 && pendingFetches.get() < 2000;
     }
 
     private AsyncFuture<Void> start() {
@@ -325,7 +338,9 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
     ) throws IOException {
         // common case for consumers
         if (points.size() == 1) {
-            return writeOnePoint(series, client, points.get(0)).onFinished(written::mark);
+            return writeOnePoint(series, client, points.get(0))
+                .onFinished(() -> written.mark())
+                .onFailed(e -> errors.mark());
         }
 
         final List<Pair<RowKey, Mutations>> saved = new ArrayList<>();
@@ -374,7 +389,10 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
                 .directTransform(result -> WriteResult.of(System.nanoTime() - start)));
         }
 
-        return async.collect(writes.build(), WriteResult.merger());
+        return async
+            .collect(writes.build(), WriteResult.merger())
+            .onFinished(() -> written.mark(points.size()))
+            .onFailed(e -> errors.mark(points.size()));
     }
 
     private AsyncFuture<WriteResult> writeOnePoint(Series series, DataClient client, Point p)
