@@ -1,5 +1,6 @@
 package com.spotify.heroic.statistics.semantic;
 
+import com.codahale.metrics.Counter;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 
@@ -12,6 +13,7 @@ import com.spotify.metrics.core.SemanticMetricRegistry;
 @ToString(of = {})
 public class SemanticFutureReporter implements FutureReporter {
     private final SemanticHeroicTimer timer;
+    private final Counter pending;
     private final Meter failed;
     private final Meter resolved;
     private final Meter cancelled;
@@ -22,6 +24,7 @@ public class SemanticFutureReporter implements FutureReporter {
         if (what == null)
             throw new IllegalArgumentException("id does not provide the tag 'what'");
 
+        this.pending = registry.counter(id.tagged("what", what + "-pending", "unit", Units.COUNT));
         this.timer = new SemanticHeroicTimer(registry.timer(id.tagged("what", what + "-latency")));
         this.failed = registry.meter(id.tagged("what", what + "-failure-rate", "unit", Units.FAILURE));
         this.resolved = registry.meter(id.tagged("what", what + "-resolve-rate", "unit", Units.RESOLVE));
@@ -30,6 +33,7 @@ public class SemanticFutureReporter implements FutureReporter {
 
     @Override
     public FutureReporter.Context setup() {
+        pending.inc();
         return new SemanticContext(timer.time());
     }
 
@@ -39,18 +43,21 @@ public class SemanticFutureReporter implements FutureReporter {
 
         @Override
         public void failed(Throwable e) throws Exception {
+            pending.dec();
             failed.mark();
             context.stop();
         }
 
         @Override
         public void resolved(Object result) throws Exception {
+            pending.dec();
             resolved.mark();
             context.stop();
         }
 
         @Override
         public void cancelled() throws Exception {
+            pending.dec();
             cancelled.mark();
             context.stop();
         }
