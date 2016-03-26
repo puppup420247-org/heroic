@@ -310,9 +310,8 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
         final long written = this.written.getCount();
         final double writeRate = this.written.getFiveMinuteRate();
         final double errorRate = this.errors.getFiveMinuteRate();
-        final long errorRatio = (long) (writeRate == 0D ? 0 : errorRate / writeRate) * 100;
         return Statistics.of("written", written, "writeRate", (long) writeRate, "errorRate",
-            (long) errorRate, "errorRatio", errorRatio);
+            (long) errorRate, "pendingFetches", pendingFetches.get());
     }
 
     private boolean watch() {
