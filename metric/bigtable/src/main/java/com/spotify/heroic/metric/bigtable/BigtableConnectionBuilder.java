@@ -25,6 +25,7 @@ import com.google.bigtable.v1.MutateRowRequest;
 import com.google.bigtable.v1.ReadModifyWriteRowRequest;
 import com.google.cloud.bigtable.config.BigtableOptions;
 import com.google.cloud.bigtable.config.CredentialOptions;
+import com.google.cloud.bigtable.config.RetryOptions;
 import com.google.cloud.bigtable.grpc.BigtableDataClient;
 import com.google.cloud.bigtable.grpc.BigtableSession;
 import com.google.cloud.bigtable.grpc.scanner.ResultScanner;
@@ -82,6 +83,11 @@ public class BigtableConnectionBuilder implements Callable<BigtableConnection> {
     public BigtableConnection call() throws Exception {
         final CredentialOptions credentials = this.credentials.build();
 
+        final RetryOptions retryOptions = new RetryOptions.Builder()
+            .addStatusToRetryOn(Status.Code.UNKNOWN)
+            .setAllowRetriesWithoutTimestamp(true)
+            .build();
+
         final BigtableOptions options = new BigtableOptions.Builder()
             .setProjectId(project)
             .setZoneId(zone)
@@ -89,6 +95,7 @@ public class BigtableConnectionBuilder implements Callable<BigtableConnection> {
             .setUserAgent(USER_AGENT)
             .setDataChannelCount(64)
             .setCredentialOptions(credentials)
+            .setRetryOptions(retryOptions)
             .build();
 
         final BigtableSession session = new BigtableSession(options, executorService);
