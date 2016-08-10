@@ -73,7 +73,7 @@ public class FindSeries {
                 size += result.size;
 
                 for (final Series s : result.series) {
-                    if (series.add(s)) {
+                    if (!series.add(s)) {
                         duplicates += 1;
                     }
 
