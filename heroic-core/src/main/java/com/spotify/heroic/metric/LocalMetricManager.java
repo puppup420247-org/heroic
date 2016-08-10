@@ -208,10 +208,14 @@ public class LocalMetricManager implements MetricManager {
                     return async.resolved(ResultGroups.empty(QUERY));
                 }
 
-                if (result.getSize() >= seriesLimit) {
+                final long actualSeriesSize = result.getSeries().size();
+
+                if (actualSeriesSize >= seriesLimit) {
                     throw new IllegalArgumentException(
-                        "The total number of series fetched exceeds the allowed limit of " +
-                            seriesLimit);
+                        String.format(
+                            "The total number of series fetched (%d) " +
+                                "exceeds the allowed limit of (%d)",
+                            actualSeriesSize, seriesLimit));
                 }
 
                 final long estimate = aggregation.estimate(range);
