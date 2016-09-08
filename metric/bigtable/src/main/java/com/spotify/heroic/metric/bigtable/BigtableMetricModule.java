@@ -55,30 +55,27 @@ public final class BigtableMetricModule implements MetricModule {
     public static final String BIGTABLE_CONFIGURE_PARAM = "bigtable.configure";
 
     public static final String DEFAULT_GROUP = "bigtable";
-    public static final String DEFAULT_CLUSTER = "heroic";
+    public static final String DEFAULT_INSTANCE = "heroic";
     public static final CredentialsBuilder DEFAULT_CREDENTIALS =
         new ComputeEngineCredentialsBuilder();
 
     private final Optional<String> id;
     private final Groups groups;
     private final String project;
-    private final String zone;
-    private final String cluster;
+    private final String instance;
     private final CredentialsBuilder credentials;
 
     @JsonCreator
     public BigtableMetricModule(
         @JsonProperty("id") Optional<String> id, @JsonProperty("groups") Optional<Groups> groups,
         @JsonProperty("project") Optional<String> project,
-        @JsonProperty("zone") Optional<String> zone,
-        @JsonProperty("cluster") Optional<String> cluster,
+        @JsonProperty("instance") Optional<String> instance,
         @JsonProperty("credentials") Optional<CredentialsBuilder> credentials
     ) {
         this.id = id;
         this.groups = groups.orElseGet(Groups::empty).or(DEFAULT_GROUP);
         this.project = project.orElseThrow(() -> new NullPointerException("project"));
-        this.zone = zone.orElseThrow(() -> new NullPointerException("zone"));
-        this.cluster = cluster.orElse(DEFAULT_CLUSTER);
+        this.instance = instance.orElse(DEFAULT_INSTANCE);
         this.credentials = credentials.orElse(DEFAULT_CREDENTIALS);
     }
 
@@ -113,7 +110,7 @@ public final class BigtableMetricModule implements MetricModule {
                 @Override
                 public AsyncFuture<BigtableConnection> construct() throws Exception {
                     return async.call(
-                        new BigtableConnectionBuilder(project, zone, cluster, credentials, async,
+                        new BigtableConnectionBuilder(project, instance, credentials, async,
                             executorService));
                 }
 
@@ -177,8 +174,7 @@ public final class BigtableMetricModule implements MetricModule {
         private Optional<String> id = empty();
         private Optional<Groups> groups = empty();
         private Optional<String> project = empty();
-        private Optional<String> zone = empty();
-        private Optional<String> cluster = empty();
+        private Optional<String> instance = empty();
         private Optional<CredentialsBuilder> credentials = empty();
 
         public Builder id(String id) {
@@ -196,13 +192,8 @@ public final class BigtableMetricModule implements MetricModule {
             return this;
         }
 
-        public Builder zone(String zone) {
-            this.zone = of(zone);
-            return this;
-        }
-
-        public Builder cluster(String cluster) {
-            this.cluster = of(cluster);
+        public Builder instance(String instance) {
+            this.instance = of(instance);
             return this;
         }
 
@@ -212,7 +203,7 @@ public final class BigtableMetricModule implements MetricModule {
         }
 
         public BigtableMetricModule build() {
-            return new BigtableMetricModule(id, groups, project, zone, cluster, credentials);
+            return new BigtableMetricModule(id, groups, project, instance, credentials);
         }
     }
 }
