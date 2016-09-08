@@ -430,8 +430,8 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
                 .rowKey(p.keyBlob)
                 .filter(RowFilter
                     .newColumnRangeBuilder(POINTS)
-                    .startQualifierExclusive(p.startKey)
-                    .endQualifierInclusive(p.endKey)
+                    .startQualifierOpen(p.startKey)
+                    .endQualifierClosed(p.endKey)
                     .build())
                 .build());
 

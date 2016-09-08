@@ -21,7 +21,7 @@
 
 package com.spotify.heroic.metric.bigtable.api;
 
-import com.google.bigtable.v1.Mutation;
+import com.google.bigtable.v2.Mutation;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.ByteString;
 import lombok.Data;

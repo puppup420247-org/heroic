@@ -31,11 +31,11 @@ public class Family {
     final String name;
     final Iterable<Column> columns;
 
-    public static Iterable<Column> makeColumnIterable(final com.google.bigtable.v1.Family family) {
+    public static Iterable<Column> makeColumnIterable(final com.google.bigtable.v2.Family family) {
         return new Iterable<Column>() {
             @Override
             public Iterator<Column> iterator() {
-                final Iterator<com.google.bigtable.v1.Column> iterator =
+                final Iterator<com.google.bigtable.v2.Column> iterator =
                     family.getColumnsList().iterator();
 
                 return new Iterator<Column>() {
@@ -47,7 +47,7 @@ public class Family {
 
                     @Override
                     public Column next() {
-                        final com.google.bigtable.v1.Column next = iterator.next();
+                        final com.google.bigtable.v2.Column next = iterator.next();
 
                         final ByteString qualifier = next.getQualifier();
                         final ByteString value = next.getCells(0).getValue();

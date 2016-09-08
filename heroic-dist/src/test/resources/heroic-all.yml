@@ -23,7 +23,6 @@ metrics:
   backends:
     - type: bigtable
       project: project
-      zone: zone
     - type: datastax
     - type: astyanax
     - type: generated
@@ -32,7 +31,6 @@ metrics:
 analytics:
   type: bigtable
   project: project
-  zone: zone
 
 generator:
   metadata:
