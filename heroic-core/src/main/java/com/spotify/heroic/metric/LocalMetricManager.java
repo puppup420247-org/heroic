@@ -108,6 +108,7 @@ public class LocalMetricManager implements MetricManager {
     private final BackendGroups<MetricBackend> backends;
     private final MetadataManager metadata;
     private final MetricBackendGroupReporter reporter;
+    private final long slowQueriesThresholdSeconds;
 
     /**
      * @param groupLimit The maximum amount of groups this manager will allow to be generated.
@@ -116,10 +117,12 @@ public class LocalMetricManager implements MetricManager {
      * may produce.
      * @param dataLimit The maximum number of samples a single query is allowed to fetch.
      * @param fetchParallelism How many fetches that are allowed to be performed in parallel.
+     * @param slowQueriesThresholdSeconds The threshold to log slow queries
      */
     public LocalMetricManager(
         final int groupLimit, final int seriesLimit, final long aggregationLimit,
-        final long dataLimit, final int fetchParallelism, final AsyncFramework async,
+        final long dataLimit, final int fetchParallelism, long slowQueriesThresholdSeconds,
+        final AsyncFramework async,
         final BackendGroups<MetricBackend> backends, final MetadataManager metadata,
         final MetricBackendGroupReporter reporter
     ) {
@@ -128,6 +131,7 @@ public class LocalMetricManager implements MetricManager {
         this.aggregationLimit = aggregationLimit;
         this.dataLimit = dataLimit;
         this.fetchParallelism = fetchParallelism;
+        this.slowQueriesThresholdSeconds = slowQueriesThresholdSeconds;
         this.async = async;
         this.backends = backends;
         this.metadata = metadata;
@@ -307,7 +311,18 @@ public class LocalMetricManager implements MetricManager {
                 .findSeries(rangeFilter)
                 .onDone(reporter.reportFindSeries())
                 .lazyTransform(transform)
-                .onDone(reporter.reportQueryMetrics());
+                .onDone(reporter.reportQueryMetrics())
+                .directTransform(r -> {
+                    final long elapsed =
+                        TimeUnit.SECONDS.convert(r.getTrace().getElapsed(), TimeUnit.NANOSECONDS);
+
+                    if (elapsed >= slowQueriesThresholdSeconds) {
+                        log.info("Slow query took {} seconds. Series: {}. Range: {}",
+                            elapsed, filter, range);
+                    }
+
+                    return r;
+                });
         }
 
         @Override
