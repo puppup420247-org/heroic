@@ -67,6 +67,7 @@ public class MetricManagerModule {
     public static final long DEFAULT_AGGREGATION_LIMIT = 10000;
     public static final long DEFAULT_DATA_LIMIT = 30000000;
     public static final int DEFAULT_FETCH_PARALLELISM = 100;
+    public static final long DEFAULT_SLOW_QUERIES_THRESHOLD_SECONDS = 5;
 
     private final List<MetricModule> backends;
     private final Optional<List<String>> defaultBackends;
@@ -96,6 +97,12 @@ public class MetricManagerModule {
      */
     private final int fetchParallelism;
 
+    /**
+     * Threshold for slow queries to be logged
+     */
+    private final long slowQueriesThresholdSeconds;
+
+
     public MetricComponent module(
         final CorePrimaryComponent primary, final MetadataComponent metadata,
         final AnalyticsComponent analytics
@@ -104,7 +111,7 @@ public class MetricManagerModule {
             .builder()
             .corePrimaryComponent(primary)
             .m(new M(backends, defaultBackends, groupLimit, seriesLimit, aggregationLimit,
-                dataLimit, fetchParallelism, primary))
+                dataLimit, fetchParallelism, slowQueriesThresholdSeconds, primary))
             .metadataComponent(metadata)
             .analyticsComponent(analytics)
             .build();
@@ -134,7 +141,9 @@ public class MetricManagerModule {
         private final long aggregationLimit;
         private final long dataLimit;
         private final int fetchParallelism;
+        private final long slowQueriesThresholdSeconds;
         private final CorePrimaryComponent primary;
+
 
         @Provides
         @MetricScope
@@ -203,7 +212,7 @@ public class MetricManagerModule {
             final MetadataManager metadata, final MetricBackendGroupReporter reporter
         ) {
             return new LocalMetricManager(groupLimit, seriesLimit, aggregationLimit, dataLimit,
-                fetchParallelism, async, backends, metadata, reporter);
+                fetchParallelism, slowQueriesThresholdSeconds, async, backends, metadata, reporter);
         }
     }
 
@@ -221,6 +230,7 @@ public class MetricManagerModule {
         private Optional<Long> aggregationLimit = empty();
         private Optional<Long> dataLimit = empty();
         private Optional<Integer> fetchParallelism = empty();
+        private Optional<Long> slowQueriesThresholdSeconds = empty();
 
         @JsonCreator
         public Builder(
@@ -230,7 +240,8 @@ public class MetricManagerModule {
             @JsonProperty("seriesLimit") Integer seriesLimit,
             @JsonProperty("aggregationLimit") Long aggregationLimit,
             @JsonProperty("dataLimit") Long dataLimit,
-            @JsonProperty("fetchParallelism") Integer fetchParallelism
+            @JsonProperty("fetchParallelism") Integer fetchParallelism,
+            @JsonProperty("slowQueriesThresholdSeconds") Long slowQueriesThresholdSeconds
         ) {
             this.backends = ofNullable(backends);
             this.defaultBackends = ofNullable(defaultBackends);
@@ -239,6 +250,7 @@ public class MetricManagerModule {
             this.aggregationLimit = ofNullable(aggregationLimit);
             this.dataLimit = ofNullable(dataLimit);
             this.fetchParallelism = ofNullable(fetchParallelism);
+            this.slowQueriesThresholdSeconds = ofNullable(slowQueriesThresholdSeconds);
         }
 
         public Builder backends(List<MetricModule> backends) {
@@ -285,7 +297,8 @@ public class MetricManagerModule {
                 pickOptional(seriesLimit, o.seriesLimit),
                 pickOptional(aggregationLimit, o.aggregationLimit),
                 pickOptional(dataLimit, o.dataLimit),
-                pickOptional(fetchParallelism, o.fetchParallelism)
+                pickOptional(fetchParallelism, o.fetchParallelism),
+                pickOptional(slowQueriesThresholdSeconds, o.slowQueriesThresholdSeconds)
             );
             // @formatter:on
         }
@@ -299,7 +312,8 @@ public class MetricManagerModule {
                 seriesLimit.orElse(DEFAULT_SERIES_LIMIT),
                 aggregationLimit.orElse(DEFAULT_AGGREGATION_LIMIT),
                 dataLimit.orElse(DEFAULT_DATA_LIMIT),
-                fetchParallelism.orElse(DEFAULT_FETCH_PARALLELISM)
+                fetchParallelism.orElse(DEFAULT_FETCH_PARALLELISM),
+                slowQueriesThresholdSeconds.orElse(DEFAULT_SLOW_QUERIES_THRESHOLD_SECONDS)
             );
             // @formatter:on
         }
