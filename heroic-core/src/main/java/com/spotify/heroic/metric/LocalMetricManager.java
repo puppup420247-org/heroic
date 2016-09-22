@@ -51,6 +51,7 @@ import eu.toolchain.async.AsyncFuture;
 import eu.toolchain.async.Collector;
 import eu.toolchain.async.LazyTransform;
 import eu.toolchain.async.StreamCollector;
+import eu.toolchain.async.Transform;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
@@ -312,17 +313,7 @@ public class LocalMetricManager implements MetricManager {
                 .onDone(reporter.reportFindSeries())
                 .lazyTransform(transform)
                 .onDone(reporter.reportQueryMetrics())
-                .directTransform(r -> {
-                    final long elapsed =
-                        TimeUnit.SECONDS.convert(r.getTrace().getElapsed(), TimeUnit.NANOSECONDS);
-
-                    if (elapsed >= slowQueriesThresholdSeconds) {
-                        log.info("Slow query took {} seconds. Series: {}. Range: {}",
-                            elapsed, filter, range);
-                    }
-
-                    return r;
-                });
+                .directTransform(logSlowQuery(filter, range));
         }
 
         @Override
@@ -481,6 +472,34 @@ public class LocalMetricManager implements MetricManager {
 
             return result.build();
         }
+    }
+
+    private Transform<ResultGroups, ResultGroups> logSlowQuery(Filter filter, DateRange range) {
+        return result -> {
+            final long elapsed =
+                TimeUnit.SECONDS.convert(result.getTrace().getElapsed(), TimeUnit.NANOSECONDS);
+
+            if (elapsed >= slowQueriesThresholdSeconds) {
+                final Map<String, Long> counters = result.getStatistics().getCounters();
+
+                final long samples = counters.getOrDefault("Aggregation.sampleSize", 0L);
+                final Double rate;
+                if (samples != 0) {
+                    rate = samples / (double) elapsed;
+                } else {
+                    rate = null;
+                }
+
+                final Long series = counters.get("MetricManager.resolved");
+
+                log.info(
+                    "Slow query took {} seconds. Rate: {} values/second. Points {}. " +
+                        "Series: {}. Filter: {}. Range: {}",
+                    elapsed, rate, samples, series, filter, range);
+            }
+
+            return result;
+        };
     }
 
     private static List<AggregationState> states(Set<Series> series) {
