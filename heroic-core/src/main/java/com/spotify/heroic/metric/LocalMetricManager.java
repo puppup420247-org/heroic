@@ -483,13 +483,7 @@ public class LocalMetricManager implements MetricManager {
                 final Map<String, Long> counters = result.getStatistics().getCounters();
 
                 final long samples = counters.getOrDefault("Aggregation.sampleSize", 0L);
-                final Double rate;
-                if (samples != 0) {
-                    rate = samples / (double) elapsed;
-                } else {
-                    rate = null;
-                }
-
+                final Double rate = (elapsed != 0) ? (samples / (double) elapsed) : null;
                 final Long series = counters.get("MetricManager.resolved");
 
                 log.info(
