@@ -193,7 +193,9 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
 
     @Override
     public AsyncFuture<WriteMetric> write(final WriteMetric.Request request) {
+
         return connection.doto(c -> {
+            /*
             final Series series = request.getSeries();
             final List<AsyncFuture<WriteMetric>> results = new ArrayList<>();
 
@@ -202,6 +204,9 @@ public class BigtableBackend extends AbstractMetricBackend implements LifeCycles
             final MetricCollection g = request.getData();
             results.add(writeTyped(series, client, g));
             return async.collect(results, WriteMetric.reduce());
+            */
+
+            return async.resolved(WriteMetric.of());
         });
     }
 
