@@ -81,7 +81,7 @@ public class BigtableConnectionBuilder implements Callable<BigtableConnection> {
             .setRetryOptions(retryOptions)
             .build();
 
-        final BigtableSession session = new BigtableSession(options, executorService);
+        final BigtableSession session = new BigtableSession(options);
 
         final BigtableTableAdminClient adminClient =
             new BigtableTableTableAdminClientImpl(async, session.getTableAdminClient(), project,
