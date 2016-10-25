@@ -23,7 +23,6 @@ package com.spotify.heroic.metric.bigtable;
 
 import com.google.appengine.repackaged.com.google.common.collect.ImmutableList;
 import com.google.cloud.bigtable.config.BigtableOptions;
-import com.google.cloud.bigtable.config.BulkOptions;
 import com.google.cloud.bigtable.config.CredentialOptions;
 import com.google.cloud.bigtable.config.RetryOptions;
 import com.google.cloud.bigtable.grpc.BigtableSession;
@@ -67,14 +66,10 @@ public class BigtableConnectionBuilder implements Callable<BigtableConnection> {
             .setAllowRetriesWithoutTimestamp(true)
             .build();
 
-        final BulkOptions bulkOptions = new BulkOptions.Builder()
-            .setMaxInflightRpcs(32000)
-            .build();
 
         final BigtableOptions options = new BigtableOptions.Builder()
             .setProjectId(project)
             .setInstanceId(instance)
-            .setBulkOptions(bulkOptions)
             .setUserAgent(USER_AGENT)
             .setDataChannelCount(64)
             .setCredentialOptions(credentials)
