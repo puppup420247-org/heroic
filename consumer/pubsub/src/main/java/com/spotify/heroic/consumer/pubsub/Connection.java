@@ -106,48 +106,93 @@ public class Connection {
     }
 
     Connection start() {
-        log.info("Starting PubSub connection");
+      log.info("Starting PubSub connection");
 
-        ProjectSubscriptionName subscriptionName = ProjectSubscriptionName
-            .of(projectId, subscriptionId);
+      ProjectSubscriptionName subscriptionName = ProjectSubscriptionName
+          .of(projectId, subscriptionId);
 
-        FlowControlSettings flowControlSettings =
-            FlowControlSettings.newBuilder()
-                .setMaxOutstandingElementCount(maxOutstandingElementCount)
-                .setMaxOutstandingRequestBytes(maxOutstandingRequestBytes)
-                .build();
+      FlowControlSettings flowControlSettings =
+          FlowControlSettings.newBuilder()
+              .setMaxOutstandingElementCount(maxOutstandingElementCount)
+              .setMaxOutstandingRequestBytes(maxOutstandingRequestBytes)
+              .build();
 
-        ExecutorProvider executorProvider =
-            InstantiatingExecutorProvider.newBuilder().setExecutorThreadCount(threads).build();
+      ExecutorProvider executorProvider =
+          InstantiatingExecutorProvider.newBuilder().setExecutorThreadCount(threads).build();
 
+      log.info("Subscribing to {}", subscriptionName);
+      final Receiver receiver = new Receiver(consumer, reporter, errors, consumed);
+      subscriber = Subscriber
+          .newBuilder(subscriptionName, receiver)
+          .setFlowControlSettings(flowControlSettings)
+          .setParallelPullCount(threads)
+          .setExecutorProvider(executorProvider)
+          .setChannelProvider(channelProvider)
+          .setCredentialsProvider(credentialsProvider)
+          .build();
 
-        log.info("Subscribing to {}", subscriptionName);
-        final Receiver receiver = new Receiver(consumer, reporter, errors, consumed);
-        subscriber = Subscriber
-            .newBuilder(subscriptionName, receiver)
-            .setFlowControlSettings(flowControlSettings)
-            .setParallelPullCount(threads)
-            .setExecutorProvider(executorProvider)
-            .setChannelProvider(channelProvider)
-            .setCredentialsProvider(credentialsProvider)
-            .build();
-
-        subscriber.addListener(
+      subscriber.addListener(
           new Subscriber.Listener() {
-              @Override
-              public void failed(Subscriber.State from, Throwable failure) {
-                  // Called when the Subscriber encountered a fatal error and is shutting down
+            int failCount = 0;
+
+            @Override
+            public void failed(Subscriber.State from, Throwable failure) {
+              // Called when the Subscriber encountered a fatal error and is shutting down
+
+              for (int i = 0; i < 5; i++) {
+                try {
+                  subscriber.startAsync().awaitRunning();
+                  //return this;
+
+                } catch (Exception e) {
                   log.error(
+                      "An error on subscriber happened (from state: )", e);
+
+                  try {
+                    Thread.sleep(((int) Math.round(Math.pow(2, i)) * 10));
+                  } catch (InterruptedException ie) {
+                    ie.printStackTrace();
+                  }
+                }
+              }
+
+              System.exit(1);
+
+/*
+              failCount++;
+              if (failCount == 4) {
+                log.error(
                     "An error on subscriber happened (from state: " + from.name() + ")", failure);
-                  System.exit(1);
-              } }, MoreExecutors.directExecutor());
+                System.exit(1);
+              } else {
+                callRetry(failCount);
+              }*/
+              //log.error(
+                  //"An error on subscriber happened (from state: " + from.name() + ")", failure);
+              //System.exit(1);
+            }
+          }, MoreExecutors.directExecutor());
 
-
-        subscriber.startAsync().awaitRunning();
-
-        log.info("PubSub connection started");
-        return this;
+      log.info("PubSub connection started");
+      return this;
     }
+
+/*
+     private Connection callRetry(int failCount) {
+      try {
+        subscriber.startAsync().awaitRunning();
+        //return this;
+      } catch (Exception e) {
+        log.error("An error on subscriber happened during retry (from state: }", e);
+        try {
+          Thread.sleep(((int) Math.round(Math.pow(2, failCount)) * 1000));
+        } catch (InterruptedException ignored) {
+          // Ignore interruptions so retries continue
+        }
+      }
+      return this;
+    }
+*/
 
     public Connection shutdown() {
         log.info("Stopping PubSub connection");
