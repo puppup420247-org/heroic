@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Spotify AB.
+ * Copyright (c) 2019 Spotify AB.
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -19,15 +19,23 @@
  * under the License.
  */
 
-package com.spotify.heroic.http.cluster;
+package com.spotify.heroic.http.metadata
 
-import com.spotify.heroic.cluster.ClusterManager;
-import lombok.Data;
+import com.spotify.heroic.QueryDateRange
+import com.spotify.heroic.filter.Filter
+import com.spotify.heroic.suggest.MatchOptions
+import java.util.Optional
 
-import java.util.List;
-
-@Data
-public class ClusterStatus {
-    private final List<ClusterNodeStatus> nodes;
-    private final ClusterManager.Statistics statistics;
+data class MetadataTagSuggest(
+    val filter: Optional<Filter>,
+    val limit: Optional<Int>,
+    val range: Optional<QueryDateRange>,
+    val match: Optional<MatchOptions.Builder>,
+    val key: Optional<String>,
+    val value: Optional<String>
+) {
+    companion object {
+        const val DEFAULT_LIMIT = 10
+        @JvmField val DEFAULT_MATCH = MatchOptions.builder().fuzzy(false).build()
+    }
 }

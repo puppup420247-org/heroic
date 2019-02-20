@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Spotify AB.
+ * Copyright (c) 2019 Spotify AB.
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -19,40 +19,34 @@
  * under the License.
  */
 
-package com.spotify.heroic.http.metadata;
+package com.spotify.heroic.http.metadata
 
-import com.spotify.heroic.QueryDateRange;
-import com.spotify.heroic.filter.Filter;
-import lombok.Data;
-import lombok.NonNull;
+import com.spotify.heroic.QueryDateRange
+import com.spotify.heroic.filter.Filter
+import java.util.Optional
 
-import java.util.Optional;
-
-@Data
-public class MetadataTagValueSuggest {
-    public static final int DEFAULT_LIMIT = 10;
-
+data class MetadataTagValueSuggest(
     /**
      * Filter the suggestions being returned.
      */
-    @NonNull
-    private final Optional<Filter> filter;
+    val filter: Optional<Filter>,
 
     /**
      * Limit the number of suggestions being returned.
      */
-    @NonNull
-    private final Optional<Integer> limit;
+    val limit: Optional<Int>,
 
     /**
      * Query for tags within the given range.
      */
-    @NonNull
-    private final Optional<QueryDateRange> range;
+    val range: Optional<QueryDateRange>,
 
     /**
      * Exclude the given tags from the result.
      */
-    @NonNull
-    private final Optional<String> key;
+    val key: Optional<String>
+) {
+    companion object {
+        const val DEFAULT_LIMIT = 10
+    }
 }

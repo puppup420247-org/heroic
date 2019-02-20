@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Spotify AB.
+ * Copyright (c) 2019 Spotify AB.
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -19,17 +19,11 @@
  * under the License.
  */
 
-package com.spotify.heroic.http.query;
+package com.spotify.heroic.http.cluster
 
-import com.spotify.heroic.QueryDateRange;
-import com.spotify.heroic.metric.QueryMetrics;
-import lombok.Data;
+import com.spotify.heroic.cluster.ClusterManager
 
-import java.util.Map;
-import java.util.Optional;
-
-@Data
-public class QueryBatch {
-    final Optional<Map<String, QueryMetrics>> queries;
-    final Optional<QueryDateRange> range;
-}
+data class ClusterStatus(
+    val nodes: List<ClusterNodeStatus>?,
+    val statistics: ClusterManager.Statistics?
+)
